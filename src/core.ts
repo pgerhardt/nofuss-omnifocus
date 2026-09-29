@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { TaskWrites } from "./task-writes.js";
+import { readWritePolicy, type WriteScope } from "./write-authorization.js";
 import {
   CAPABILITIES,
   OverviewInput,
@@ -90,6 +92,7 @@ export class NoFussCore {
   constructor(
     private worker: Reader,
     private build: Record<string, unknown>,
+    private writeStateDirectory?: string,
   ) {}
   private async runNative(
     operation: string,
@@ -104,6 +107,8 @@ export class NoFussCore {
     }
   }
   async execute(operation: string, input: unknown, signal?: AbortSignal) {
+    if (["task.create", "task.update", "task.complete"].includes(operation))
+      return this.mutate(operation as WriteScope, input);
     switch (operation) {
       case "get":
         return this.get(input, signal);
@@ -120,6 +125,12 @@ export class NoFussCore {
           "Only read operations are supported.",
         );
     }
+  }
+  async mutate(scope: WriteScope, input: unknown) {
+    return new TaskWrites(this.worker, this, this.writeStateDirectory).execute(
+      scope,
+      input,
+    );
   }
   async get(
     input: unknown,
@@ -571,7 +582,12 @@ export class NoFussCore {
       build: this.build,
       native,
       worker: this.worker.snapshot(),
-      capabilities: CAPABILITIES,
+      capabilities: {
+        ...CAPABILITIES,
+        writes: await readWritePolicy(this.writeStateDirectory).then(
+          (p) => !!p?.scopes.length && !!p?.project_ids.length,
+        ),
+      },
       verification: {
         ...READ_VERIFICATION,
         matches_running_build: native.connected

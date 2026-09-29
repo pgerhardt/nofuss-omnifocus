@@ -13,10 +13,24 @@ export const HELP = {
     "overview [--waiting-tag-ids ID,ID]",
     "doctor",
     "mcp",
+    "create|update|complete task --input FILE|- [--apply --request-key KEY]",
   ],
   documentation: "docs/cli.md",
 };
 export function exitCode(code: string): number {
+  if (
+    [
+      "INVALID_MUTATION",
+      "REQUEST_KEY_REUSE_MISMATCH",
+      "REPEATING_COMPLETION_UNSUPPORTED",
+    ].includes(code)
+  )
+    return 2;
+  if (code === "WRITE_NOT_AUTHORIZED") return 4;
+  if (code === "MUTATION_BUSY") return 5;
+  if (code === "MUTATION_STATE_UNAVAILABLE") return 8;
+  if (code === "PRECONDITION_CONFLICT") return 9;
+  if (code === "MUTATION_RECONCILIATION_REQUIRED") return 10;
   switch (errorCategory(code)) {
     case "invalid_input":
     case "unsupported_capability":
@@ -63,6 +77,41 @@ export async function readInput(path: string): Promise<unknown> {
 }
 export async function parseCommand(argv: string[], read = readInput) {
   const [command, ...rest] = argv;
+  if (
+    ["create", "update", "complete"].includes(command ?? "") &&
+    rest[0] === "task"
+  ) {
+    const options = new Map<string, string>();
+    let apply = false;
+    for (let i = 1; i < rest.length; i++) {
+      const key = rest[i]!;
+      if (key === "--apply") {
+        if (apply) invalid("Duplicate apply flag.");
+        apply = true;
+        continue;
+      }
+      if (!["--input", "--request-key"].includes(key) || options.has(key))
+        invalid("Unknown/duplicate task write option.");
+      const value = rest[++i];
+      if (!value || value.startsWith("--"))
+        invalid("Write option requires a value.");
+      options.set(key, value);
+    }
+    if (!options.has("--input")) invalid("Task writes require --input FILE|-.");
+    const value = await read(options.get("--input")!);
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      invalid("Expected a task write JSON object.");
+    const input = value as Record<string, unknown>;
+    if (input.apply === true && !apply)
+      invalid("CLI apply requires explicit --apply intent.");
+    const key = options.get("--request-key");
+    if (key && input.request_key !== undefined && input.request_key !== key)
+      invalid("Conflicting request keys.");
+    return {
+      command: "task." + command,
+      input: { ...input, apply, ...(key ? { request_key: key } : {}) },
+    };
+  }
   if (!["get", "query", "overview", "doctor"].includes(command ?? "")) {
     if (
       [
@@ -199,6 +248,18 @@ export async function runCli(
         if (native.error) errors.push(native.error);
       }
       status = Math.max(0, ...errors.map((e) => exitCode(e.code)));
+      if (command.startsWith("task.") && "items" in data) {
+        const result = data as import("./mutation-contract.js").MutationResult;
+        status =
+          result.reconciliation_required ||
+          result.items.some((i) => ["unknown", "partial"].includes(i.outcome))
+            ? 10
+            : result.items.some((i) => i.outcome === "conflict")
+              ? 9
+              : result.items.some((i) => i.outcome === "rejected")
+                ? exitCode(result.error?.code ?? "INVALID_MUTATION")
+                : 0;
+      }
     }
   } catch (error) {
     const info = errorInfo(error);

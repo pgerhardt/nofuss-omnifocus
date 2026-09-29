@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ReadError } from "./contract.js";
+import { MutationError } from "./mutation-contract.js";
 
 export type ErrorCategory =
   | "invalid_input"
@@ -52,7 +53,7 @@ export function errorCategory(code: string): ErrorCategory {
   return "native_execution";
 }
 export function errorInfo(error: unknown): { code: string; message: string } {
-  return error instanceof ReadError
+  return error instanceof ReadError || error instanceof MutationError
     ? { code: error.code, message: error.message }
     : {
         code: "READ_FAILED",

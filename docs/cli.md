@@ -1,4 +1,4 @@
-# NoFuss for OmniFocus: direct read CLI
+# NoFuss for OmniFocus: direct CLI (private development)
 
 `nofuss-omnifocus` calls the typed `NoFussCore` directly, then the existing native
 worker and fixed scripts. Ordinary reads have no MCP client/server hop and never
@@ -183,11 +183,12 @@ isolation and no automatic replay remain intact. Stopping a launcher does not
 prove that already-dispatched in-app work stopped. No daemon, PTY, persistent
 bridge, cross-process scheduler or native result cache is added.
 
-Writes, arbitrary scripts, sync truth, attachment CRUD, perspectives, locations,
+Outside the gated initial task slice, writes remain unsupported. Arbitrary
+scripts, sync truth, attachment CRUD, perspectives, locations,
 Inbox-forwarding mutations, defer-relative alarms, ambiguous native available-child
 numeric counts, review-interval mutation and mark-reviewed remain unsupported.
 `doctor` reports the same compact build/native/capability/verification facts as
-`nofuss_status`; legacy build naming is retained pending packaging migration.
+`nofuss_status`; build identity reflects the current source build.
 
 ## Modules
 
@@ -200,8 +201,22 @@ numeric counts, review-interval mutation and mark-reviewed remain unsupported.
 - `src/cli-command.ts`, `src/cli.ts`: strict argv/file/stdin input, JSON output,
   exit mapping and optional dynamic MCP launch.
 - `src/service.ts`: thin compatibility MCP presentation adapter; `src/index.ts`:
-  four tool registrations, annotations and stdio server lifecycle.
+  four default read registrations, optional policy-gated task tools, annotations
+  and stdio server lifecycle.
 
-`NoFussCore.execute(operation, input, signal?)` accepts only get/query/overview/doctor.
+`NoFussCore.execute(operation, input, signal?)` accepts get/query/overview/doctor
+and explicit `task.create`, `task.update`, `task.complete` operations.
 Typed `get`, `query`, `overview`, and `status` methods remain directly callable.
 Unknown commands cannot become native operation or script names.
+
+## Gated task commands
+
+The beta adds `create task`, `update task`, and `complete task` using strict JSON
+via `--input FILE|-`. Default is read-only preview. Apply requires explicit
+`--apply`, a caller-supplied durable `--request-key`, and private host authorization
+for the operation and exact project. JSON `apply:true` alone cannot enable CLI apply.
+
+See [task writes](task-writes.md) for exact inputs, preserve/set/clear semantics,
+preview preconditions, outcome-specific exit codes, and completion limitations.
+MCP defaults to four reads; authorized write tools also require the client tool
+allowlist to permit them. Package code alone does not enable writes.

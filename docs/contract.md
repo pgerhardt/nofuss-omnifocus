@@ -804,5 +804,13 @@ every field/value has native coverage. Direct project counts and review fixed us
 the verified scripting supplement despite their absence from OmniJS declarations.
 Unsupported gates remain false, including locations, Inbox-forwarding mutations
 (distinct from Inbox queries), numeric available-child counts and defer-relative
-notifications. See read-only readiness in the source repository (`alpha-readiness.md`, not packaged) for acceptance and
-remaining native fixture gaps.
+notifications. See `nofuss_status.verification` for the shipped verification scope and remaining
+native coverage gaps.
+
+## Gated task-write contract
+
+The read contract above is unchanged. The beta provides a separate gated
+[task-write contract](task-writes.md) through the shared core. Default MCP
+registers only four reads. Apply requires explicit host operation/project scopes;
+MCP discovery also depends on the client tool allowlist. Independent readback,
+durable request records and uncertain outcomes are described in the task guide.

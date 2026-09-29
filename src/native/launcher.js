@@ -14,7 +14,9 @@ function run(argv) {
   }
   var source = ObjC.unwrap(
     $.NSString.stringWithContentsOfFileEncodingError(
-      argv[0],
+      ["task_write_facts", "task_write_apply"].includes(envelope.op)
+        ? argv[0].replace(/operation\.js$/, "task-operation.js")
+        : argv[0],
       $.NSUTF8StringEncoding,
       null,
     ),

@@ -1,6 +1,6 @@
 {
   "name": "nofuss-omnifocus",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-beta.1",
   "description": "NoFuss for OmniFocus — bounded, fresh, read-only CLI and MCP over a shared core",
   "type": "module",
   "private": true,

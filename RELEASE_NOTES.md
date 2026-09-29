@@ -1,3 +1,31 @@
+# NoFuss for OmniFocus — 0.1.0-beta.1
+
+First gated safe-write beta, distributed only as a GitHub source prerelease.
+Install from the tag using the [README](README.md). No npm registry publication,
+custom binary assets, or automatic installation/activation changes.
+
+- Task create, update (`name`, `note`, `flagged`, `tag_ids`), and ordinary completion.
+- Read-only by default: exactly four MCP read tools; unauthorized CLI apply returns
+  `WRITE_NOT_AUTHORIZED`. Host operation/project authorization and MCP client tool
+  allowlisting are separate gates.
+- Preview by default, explicit apply with durable request keys, conservative
+  conflict checks, durable journals/locks and independent exact-ID readback.
+- Distinct applied/rejected/conflict/partial/unknown outcomes; uncertain requests
+  reconcile read-only and are never blindly replayed.
+- Independently verified live task writes on OmniFocus 4.9.2 (188.3), with disposable
+  object cleanup. This is not certification of every version, crash or concurrency case.
+
+Repeating/group/automatic-ancestor completion remains unsupported before setters.
+Lost create identity remains unknown with no blind replay. No project, review,
+recurrence, attachment/location/perspective or arbitrary-script writes. Supported
+fields and other limitations are listed in [task writes](docs/task-writes.md).
+
+The public history contains sanitized release snapshots. Runtime sources match
+the reviewed beta; public build metadata identifies the public commit. Existing
+alpha tag/release remains unchanged. `private:true`, licenses and notices remain.
+
+---
+
 # NoFuss for OmniFocus — 0.1.0-alpha.1
 
 First read-only alpha of the **CLI + MCP interface for AI agents**, distributed as
