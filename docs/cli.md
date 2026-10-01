@@ -183,12 +183,10 @@ isolation and no automatic replay remain intact. Stopping a launcher does not
 prove that already-dispatched in-app work stopped. No daemon, PTY, persistent
 bridge, cross-process scheduler or native result cache is added.
 
-Outside the gated initial task slice, writes remain unsupported. Arbitrary
-scripts, sync truth, attachment CRUD, perspectives, locations,
-Inbox-forwarding mutations, defer-relative alarms, ambiguous native available-child
-numeric counts, review-interval mutation and mark-reviewed remain unsupported.
-`doctor` reports the same compact build/native/capability/verification facts as
-`nofuss_status`; build identity reflects the current source build.
+Writes require explicit host authorization and apply intent. See [safe writes](safe-writes.md)
+for current subsets and exclusions. Arbitrary scripts, sync-completion truth,
+attachment CRUD, locations and perspective mutation remain unsupported.
+`doctor` reports the same build/native/capability/verification facts as `nofuss_status`.
 
 ## Modules
 
@@ -204,19 +202,21 @@ numeric counts, review-interval mutation and mark-reviewed remain unsupported.
   four default read registrations, optional policy-gated task tools, annotations
   and stdio server lifecycle.
 
-`NoFussCore.execute(operation, input, signal?)` accepts get/query/overview/doctor
-and explicit `task.create`, `task.update`, `task.complete` operations.
-Typed `get`, `query`, `overview`, and `status` methods remain directly callable.
-Unknown commands cannot become native operation or script names.
+`NoFussCore.execute(operation, input, signal?)` accepts shared reads and declared
+semantic mutation operations. Unknown commands cannot become native scripts.
 
-## Gated task commands
+## Gated mutation commands
 
-The beta adds `create task`, `update task`, and `complete task` using strict JSON
-via `--input FILE|-`. Default is read-only preview. Apply requires explicit
-`--apply`, a caller-supplied durable `--request-key`, and private host authorization
-for the operation and exact project. JSON `apply:true` alone cannot enable CLI apply.
+Create/update/complete/move/drop/duplicate/delete task commands and the supported
+project/taxonomy/review/batch verbs use strict JSON via `--input FILE|-`.
+Default is preview. Apply requires `--apply --request-key KEY` plus private host
+operation/object authorization. See [safe writes](safe-writes.md) for supported
+subsets, pinned input, outcomes, exits and no-replay behavior; CLI help lists grammar.
 
-See [task writes](task-writes.md) for exact inputs, preserve/set/clear semantics,
-preview preconditions, outcome-specific exit codes, and completion limitations.
-MCP defaults to four reads; authorized write tools also require the client tool
-allowlist to permit them. Package code alone does not enable writes.
+## Direct capture and Inbox triage
+
+The existing `create task` accepts exactly one of legacy `project_id`,
+`destination:{"kind":"inbox"}` or `destination:{"kind":"parent","task_id":"EXACT_ID"}`.
+Inbox scalar updates require exact `task_id`, `changes`, `allow_inbox:true` and
+`task.update` scope. Parent capture authorizes its actual native containing project
+or explicit Inbox scope. See [capture contract](inbox-parent-capture.md).

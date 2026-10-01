@@ -16,7 +16,13 @@ function run(argv) {
     $.NSString.stringWithContentsOfFileEncodingError(
       ["task_write_facts", "task_write_apply"].includes(envelope.op)
         ? argv[0].replace(/operation\.js$/, "task-operation.js")
-        : argv[0],
+        : ["project_write_facts", "project_write_apply"].includes(envelope.op)
+          ? argv[0].replace(/operation\.js$/, "project-operation.js")
+          : ["taxonomy_write_facts", "taxonomy_write_apply"].includes(
+                envelope.op,
+              )
+            ? argv[0].replace(/operation\.js$/, "taxonomy-operation.js")
+            : argv[0],
       $.NSUTF8StringEncoding,
       null,
     ),
@@ -29,6 +35,90 @@ function run(argv) {
     return of.evaluateJavascript(
       "(" + source + ")(JSON.parse(" + literal + "))",
     );
+  }
+  // Exact review records require the scripting fixed flag omitted by OmniJS.
+  // No user script is evaluated; source above is the shipped project operation.
+  var review =
+    envelope.args.review_interval === true &&
+    ["project_write_facts", "project_write_apply"].includes(envelope.op);
+  if (review) {
+    var reference =
+      envelope.op === "project_write_facts"
+        ? envelope.args.reference
+        : envelope.args.request.items[0].targets[0];
+    var nativeBase = JSON.parse(
+      evaluate({
+        request_id: envelope.request_id,
+        op: "project_write_facts",
+        args: { reference: reference },
+      }),
+    );
+    if (nativeBase.error || !nativeBase.result.facts)
+      return JSON.stringify(nativeBase);
+    var reviewProject = of.defaultDocument.flattenedProjects.byId(reference.id);
+    if (reviewProject.id() !== reference.id)
+      throw new Error("Review exact ID mismatch");
+    var currentReview = reviewProject.reviewInterval();
+    envelope.args.review_interval_value = {
+      id: reference.id,
+      unit: currentReview.unit,
+      steps: currentReview.steps,
+      fixed: currentReview.fixed,
+    };
+    if (
+      envelope.op === "project_write_apply" &&
+      envelope.args.request.operation.kind === "project.set_review_interval"
+    ) {
+      var preflight = JSON.parse(
+        evaluate({
+          request_id: envelope.request_id,
+          op: "project_review_preflight",
+          args: envelope.args,
+        }),
+      );
+      if (preflight.error || preflight.result.error)
+        return JSON.stringify(preflight);
+      var receipt = preflight.result;
+      try {
+        var baseline =
+          envelope.args.plan.items[0].payload.baseline.review_interval;
+        var units = {
+          days: "day",
+          weeks: "week",
+          months: "month",
+          years: "year",
+        };
+        var observed = reviewProject.reviewInterval();
+        if (
+          reviewProject.id() !== reference.id ||
+          units[baseline.unit] !== observed.unit ||
+          baseline.steps !== observed.steps ||
+          baseline.fixed !== observed.fixed
+        ) {
+          receipt.error = {
+            code: "PRECONDITION_CONFLICT",
+            message: "Review interval changed immediately before setter",
+          };
+        } else {
+          var desired = envelope.args.request.items[0].changes.review_interval;
+          receipt.setter_count++;
+          reviewProject.reviewInterval = {
+            unit: units[desired.unit],
+            steps: desired.steps,
+            fixed: desired.fixed,
+          };
+        }
+      } catch (_) {
+        receipt.error = {
+          code: "NATIVE_PROJECT_WRITE_FAILED",
+          message: "Review interval setter failed; independently reconcile",
+        };
+      }
+      return JSON.stringify({
+        request_id: envelope.request_id,
+        result: receipt,
+      });
+    }
   }
   var getters = {
     direct_task_count: "numberOfTasks",

@@ -353,8 +353,12 @@ test("project metadata shared output definitions validate both entities without 
   assert.deepEqual(Object.keys(schema.definitions).sort(), [
     "FieldTruncation",
     "FieldUnavailable",
+    "FolderRecord",
     "NullableTimestamp",
+    "PerspectiveArchiveJson",
+    "PerspectiveRecord",
     "ProjectRecord",
+    "TagRecord",
     "TaskRecord",
   ]);
   const validate = new AjvJsonSchemaValidator().getValidator(schema);

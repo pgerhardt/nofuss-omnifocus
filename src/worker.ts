@@ -7,6 +7,7 @@ interface Options {
   command?: string;
   prefix?: string[];
   timeoutMs?: number;
+  libraryQueryTimeoutMs?: number;
   maxPending?: number;
   outputBytes?: number;
 }
@@ -40,6 +41,7 @@ export class NativeWorker {
         fileURLToPath(new URL("./native/operation.js", import.meta.url)),
       ],
       timeoutMs: 15000,
+      libraryQueryTimeoutMs: options.timeoutMs ?? 45000,
       maxPending: 8,
       outputBytes: 262144,
       ...options,
@@ -73,6 +75,19 @@ export class NativeWorker {
         ),
       );
     return new Promise((resolve, reject) => {
+      // Cross-library scans resolve native proxies across the complete library.
+      // Keep mutation, exact read and other query deadlines at their existing bound.
+      const libraryQuery =
+        op === "query" &&
+        args !== null &&
+        typeof args === "object" &&
+        "entity" in args &&
+        args.entity === "task" &&
+        "scope" in args &&
+        args.scope === "library";
+      const deadline = libraryQuery
+        ? this.options.libraryQueryTimeoutMs
+        : this.options.timeoutMs;
       const job: Job = {
         op,
         args,
@@ -89,7 +104,7 @@ export class NativeWorker {
                 "Read deadline exceeded, including queue time. Native read may still finish; no retry was attempted.",
               ),
             ),
-          this.options.timeoutMs,
+          deadline,
         ),
         abort: () =>
           this.cancel(

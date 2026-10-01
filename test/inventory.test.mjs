@@ -409,7 +409,7 @@ test("conditional inputs and shared project output references preserve strict fi
     assert.equal(QueryInput.safeParse(q(more)).success, false);
   for (const more of [
     { status: "active" },
-    { flagged: false },
+    { flagged: "false" },
     { fields: ["review_interval"] },
   ])
     assert.equal(

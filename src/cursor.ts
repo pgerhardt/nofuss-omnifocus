@@ -8,6 +8,8 @@ import {
   TREE_ORDER,
   type GetArgs,
   type QueryArgs,
+  type Entity,
+  TASK_FILTERS,
 } from "./contract.js";
 export const Key = z
   .object({
@@ -32,15 +34,37 @@ export function queryHash(args: QueryArgs): string {
       ...(args.scope === "project"
         ? { project_id: args.project_id, depth: args.depth ?? "descendants" }
         : {}),
-      ...(args.entity === "project"
-        ? { status: args.status, flagged: args.flagged }
-        : { include_completed: args.include_completed ?? false }),
+      ...queryPredicates(args),
       sort: args.sort,
       limit: args.limit,
       view: args.view,
       fields: selectedFields(args),
     }),
   );
+}
+// One canonical predicate payload is both cursor-bound and passed to native.
+export function queryPredicates(args: QueryArgs) {
+  if (args.entity !== "task")
+    return {
+      status: args.status,
+      ...(args.entity === "project" ? { flagged: args.flagged } : {}),
+    };
+  return {
+    ...(args.status === undefined
+      ? {
+          include_completed: args.include_completed ?? false,
+          ...(args.include_dropped ? { include_dropped: true } : {}),
+        }
+      : {}),
+    ...Object.fromEntries(
+      TASK_FILTERS.map((f) => [
+        f,
+        f === "tag_ids" && args.tag_ids
+          ? [...new Set(args.tag_ids)].sort()
+          : args[f],
+      ]),
+    ),
+  };
 }
 export function treeHash(args: GetArgs): string {
   if (!args.tree)
@@ -131,11 +155,7 @@ const FieldKey = z
   })
   .strict();
 type FieldKey = z.infer<typeof FieldKey>;
-export function fieldHash(
-  entity: "task" | "project",
-  id: string,
-  field: string,
-): string {
+export function fieldHash(entity: Entity, id: string, field: string): string {
   return hash(
     JSON.stringify({
       version: API_VERSION,

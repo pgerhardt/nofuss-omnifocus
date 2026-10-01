@@ -1,6 +1,14 @@
 import { z } from "zod";
+import { TaxonomyWrites } from "./taxonomy-writes.js";
+import { ProjectWrites } from "./project-writes.js";
+import { TaskBatch } from "./task-batch.js";
 import { TaskWrites } from "./task-writes.js";
-import { readWritePolicy, type WriteScope } from "./write-authorization.js";
+import {
+  readWritePolicy,
+  enabledWriteScopes,
+  WRITE_SCOPES,
+  type WriteScope,
+} from "./write-authorization.js";
 import {
   CAPABILITIES,
   OverviewInput,
@@ -14,6 +22,11 @@ import {
   QueryOutput,
   TaskRecord,
   ProjectRecord,
+  TagRecord,
+  FolderRecord,
+  PerspectiveRecord,
+  Entity,
+  entityRecord,
   ReadError,
   RESPONSE_BYTES,
   selectedFields,
@@ -27,6 +40,7 @@ import {
   encodeCursor,
   Key,
   queryHash,
+  queryPredicates,
   treeHash,
 } from "./cursor.js";
 import { READ_VERIFICATION } from "./verification.js";
@@ -38,8 +52,13 @@ import { packingCost } from "./packing.js";
 // Continuations belong to the exact field, so pages from queries and trees can
 // be completed through get without inheriting the enclosing list projection.
 function fieldCursors(
-  row: z.infer<typeof TaskRecord> | z.infer<typeof ProjectRecord>,
-  entity: "task" | "project",
+  row:
+    | z.infer<typeof TaskRecord>
+    | z.infer<typeof ProjectRecord>
+    | z.infer<typeof TagRecord>
+    | z.infer<typeof FolderRecord>
+    | z.infer<typeof PerspectiveRecord>,
+  entity: Entity,
   text?: { field: string; length: number },
   collection?: { field: string; limit: number },
 ) {
@@ -54,8 +73,15 @@ function fieldCursors(
           : -1;
     if (
       (!isText &&
-        field !== "tag_ids" &&
-        (field !== "notifications" || entity !== "task")) ||
+        !(
+          entity === "task"
+            ? ["tag_ids", "notifications"]
+            : entity === "project"
+              ? ["tag_ids"]
+              : entity === "tag"
+                ? ["child_ids"]
+                : ["child_ids", "project_ids"]
+        ).includes(field)) ||
       page.reason !== (isText ? "text_window" : "collection_window") ||
       page.offset < 0 ||
       page.returned !== length ||
@@ -107,7 +133,7 @@ export class NoFussCore {
     }
   }
   async execute(operation: string, input: unknown, signal?: AbortSignal) {
-    if (["task.create", "task.update", "task.complete"].includes(operation))
+    if (WRITE_SCOPES.includes(operation as WriteScope))
       return this.mutate(operation as WriteScope, input);
     switch (operation) {
       case "get":
@@ -127,8 +153,27 @@ export class NoFussCore {
     }
   }
   async mutate(scope: WriteScope, input: unknown) {
+    if (scope === "task.batch")
+      return new TaskBatch(this.worker, this, this.writeStateDirectory).execute(
+        input,
+      );
+    if (scope.startsWith("tag.") || scope.startsWith("folder."))
+      return new TaxonomyWrites(
+        this.worker,
+        this,
+        this.writeStateDirectory,
+      ).execute(
+        scope as Extract<WriteScope, `tag.${string}` | `folder.${string}`>,
+        input,
+      );
+    if (scope.startsWith("project."))
+      return new ProjectWrites(
+        this.worker,
+        this,
+        this.writeStateDirectory,
+      ).execute(scope as Extract<WriteScope, `project.${string}`>, input);
     return new TaskWrites(this.worker, this, this.writeStateDirectory).execute(
-      scope,
+      scope as keyof typeof import("./task-writes.js").TaskInputs,
       input,
     );
   }
@@ -304,7 +349,7 @@ export class NoFussCore {
       after = decodeCursor(args.cursor, hash);
     const nativeSchema = z
       .object({
-        items: z.array(args.entity === "project" ? ProjectRecord : TaskRecord),
+        items: z.array(entityRecord[args.entity]),
         keys: z.array(Key),
         has_more: z.boolean(),
         stop_reason: z.enum(["complete", "page_limit", "response_bytes"]),
@@ -318,17 +363,12 @@ export class NoFussCore {
         {
           entity: args.entity,
           scope: args.scope,
-          ...(args.entity === "project"
-            ? { status: args.status, flagged: args.flagged }
-            : {}),
+          ...queryPredicates(args),
           ...(args.scope === "project"
             ? {
                 project_id: args.project_id,
                 depth: args.depth ?? "descendants",
               }
-            : {}),
-          ...(args.entity === "task"
-            ? { include_completed: args.include_completed ?? false }
             : {}),
           limit: args.limit,
           after,
@@ -585,7 +625,7 @@ export class NoFussCore {
       capabilities: {
         ...CAPABILITIES,
         writes: await readWritePolicy(this.writeStateDirectory).then(
-          (p) => !!p?.scopes.length && !!p?.project_ids.length,
+          (p) => enabledWriteScopes(p).length > 0,
         ),
       },
       verification: {

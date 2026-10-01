@@ -246,6 +246,7 @@ export const Readback = z
           .object({
             item_key: text,
             resource: Reference.optional(),
+            not_attempted: z.enum(["rejected", "conflict"]).optional(),
             all_postconditions: z.boolean(),
             some_effects: z.boolean(),
             evidence: z.array(z.string().min(1).max(1024)).min(1).max(100),

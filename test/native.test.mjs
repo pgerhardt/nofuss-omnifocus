@@ -281,7 +281,7 @@ test("unsupported entities, filters, fields, types and batches reject", () => {
   for (const args of [
     q({ entity: "project" }),
     q({ scope: "all" }),
-    q({ available: true }),
+    q({ available: "true" }),
     q({ limit: 201 }),
     q({ include_completed: "yes" }),
     q({ fields: ["note_html"] }),
@@ -377,7 +377,12 @@ test("failed selection is an error, not an empty query; worker failure has per-I
     ["error", "error"],
   );
 });
-test("shared projection fields are stable and detail excludes unsupported recurrence", () => {
+test("shared projection detail includes bounded recurrence and leaves planned date explicitly selected", () => {
+  assert.ok(
+    selectedFields(GetInput.parse({ ids: ["a"], view: "detail" })).includes(
+      "recurrence",
+    ),
+  );
   assert.ok(
     selectedFields(GetInput.parse({ ids: ["a"], view: "detail" })).includes(
       "floating_time_zone",
@@ -572,7 +577,7 @@ test("project inputs are conditional and the original Inbox cursor binding is un
     q({ project_id: "project.1" }),
     q({ depth: "direct" }),
     projectQuery({ name: "Same name" }),
-    projectQuery({ include_dropped: true }),
+    projectQuery({ include_dropped: "true" }),
   ])
     assert.equal(QueryInput.safeParse(args).success, false);
   assert.equal(

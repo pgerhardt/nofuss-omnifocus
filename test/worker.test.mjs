@@ -55,10 +55,10 @@ test("serialized queue rejects saturation and associates results", async () => {
   }
 });
 test("deadline includes queue time; timed-out reads are not replayed", async () => {
-  const w = worker({ timeoutMs: 80 });
+  const w = worker({ timeoutMs: 500 });
   try {
     const all = Promise.allSettled([
-      w.run("first", { scenario: "hang" }),
+      w.run("query", { scenario: "hang", entity: "task", scope: "library" }),
       w.run("second", {}),
     ]);
     const results = await all;

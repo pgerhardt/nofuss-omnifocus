@@ -7,13 +7,15 @@ export const INPUT_BYTES = 65_536;
 export const HELP = {
   executable: "nofuss-omnifocus",
   usage: [
-    "get task|project ID... [--fields id,name | --view brief|detail]",
-    "query tasks|projects [--scope inbox|project|library] [--project-id ID] [--fields id,name] [--limit 20] [--cursor TOKEN]",
+    "get task|project|tag|folder|perspective ID... [--fields id,name | --view brief|detail]",
+    "query tasks|projects|tags|folders|perspectives [--scope inbox|project|library] [--project-id ID] [--fields id,name] [--limit 20] [--cursor TOKEN]",
     "get|query|overview|doctor --input FILE|-",
     "overview [--waiting-tag-ids ID,ID]",
     "doctor",
     "mcp",
-    "create|update|complete task --input FILE|- [--apply --request-key KEY]",
+    "create|update|complete|move|drop|duplicate|delete task|project|tag|folder --input FILE|- [--apply --request-key KEY]",
+    "batch task --input FILE|- [--apply --request-key KEY]",
+    "review project --input FILE|- [--apply --request-key KEY]",
   ],
   documentation: "docs/cli.md",
 };
@@ -78,8 +80,18 @@ export async function readInput(path: string): Promise<unknown> {
 export async function parseCommand(argv: string[], read = readInput) {
   const [command, ...rest] = argv;
   if (
-    ["create", "update", "complete"].includes(command ?? "") &&
-    rest[0] === "task"
+    [
+      "create",
+      "update",
+      "complete",
+      "move",
+      "drop",
+      "duplicate",
+      "delete",
+      "review",
+      "batch",
+    ].includes(command ?? "") &&
+    ["task", "project", "tag", "folder"].includes(rest[0] ?? "")
   ) {
     const options = new Map<string, string>();
     let apply = false;
@@ -91,25 +103,41 @@ export async function parseCommand(argv: string[], read = readInput) {
         continue;
       }
       if (!["--input", "--request-key"].includes(key) || options.has(key))
-        invalid("Unknown/duplicate task write option.");
+        invalid("Unknown/duplicate write option.");
       const value = rest[++i];
       if (!value || value.startsWith("--"))
         invalid("Write option requires a value.");
       options.set(key, value);
     }
-    if (!options.has("--input")) invalid("Task writes require --input FILE|-.");
+    if (!options.has("--input")) invalid("Writes require --input FILE|-.");
     const value = await read(options.get("--input")!);
     if (!value || typeof value !== "object" || Array.isArray(value))
-      invalid("Expected a task write JSON object.");
+      invalid("Expected a write JSON object.");
     const input = value as Record<string, unknown>;
+    if (input.entity !== undefined && input.entity !== rest[0])
+      invalid("Conflicting write entity.");
     if (input.apply === true && !apply)
       invalid("CLI apply requires explicit --apply intent.");
     const key = options.get("--request-key");
     if (key && input.request_key !== undefined && input.request_key !== key)
       invalid("Conflicting request keys.");
     return {
-      command: "task." + command,
-      input: { ...input, apply, ...(key ? { request_key: key } : {}) },
+      command:
+        rest[0] +
+        "." +
+        (command === "review"
+          ? input.action === "set_interval"
+            ? "set_review_interval"
+            : input.action === "mark_reviewed"
+              ? "mark_reviewed"
+              : invalid("Review action must be set_interval or mark_reviewed.")
+          : command),
+      input: {
+        ...input,
+        entity: rest[0],
+        apply,
+        ...(key ? { request_key: key } : {}),
+      },
     };
   }
   if (!["get", "query", "overview", "doctor"].includes(command ?? "")) {
@@ -163,6 +191,21 @@ export async function parseCommand(argv: string[], read = readInput) {
             "status",
             "flagged",
             "include-completed",
+            "include-dropped",
+            "available",
+            "tag-ids",
+            "due-from",
+            "due-before",
+            "defer-from",
+            "defer-before",
+            "planned-from",
+            "planned-before",
+            "effective-due-from",
+            "effective-due-before",
+            "effective-defer-from",
+            "effective-defer-before",
+            "estimate-min",
+            "estimate-max",
           ]
         : command === "overview"
           ? ["waiting-tag-ids"]
@@ -181,12 +224,35 @@ export async function parseCommand(argv: string[], read = readInput) {
   } else {
     for (const [key, value] of options) {
       const field = key.slice(2).replaceAll("-", "_");
-      if (["fields", "waiting_tag_ids"].includes(field))
+      if (["fields", "waiting_tag_ids", "tag_ids"].includes(field))
         input[field] = value === "" ? [] : value.split(",");
       else if (field === "limit") {
         if (!/^[0-9]+$/.test(value)) invalid("Limit must be an integer.");
         input[field] = Number(value);
-      } else if (["flagged", "include_completed"].includes(field)) {
+      } else if (
+        /^(effective_)?(due|defer|planned)_(from|before)$/.test(field)
+      ) {
+        const end = field.endsWith("_from") ? "from" : "before";
+        const dateField = field.slice(0, -(end.length + 1)) + "_at";
+        input[dateField] = {
+          ...((input[dateField] as object) ?? {}),
+          [end]: value,
+        };
+      } else if (field === "estimate_min" || field === "estimate_max") {
+        if (!/^(?:[0-9]+)(?:\.[0-9]+)?$/.test(value))
+          invalid("Estimate must be a nonnegative number.");
+        input.estimated_minutes = {
+          ...((input.estimated_minutes as object) ?? {}),
+          [field.slice(9)]: Number(value),
+        };
+      } else if (
+        [
+          "flagged",
+          "include_completed",
+          "include_dropped",
+          "available",
+        ].includes(field)
+      ) {
         if (value !== "true" && value !== "false")
           invalid("Boolean options require true or false.");
         input[field] = value === "true";
@@ -199,8 +265,20 @@ export async function parseCommand(argv: string[], read = readInput) {
     const entity = positional.shift();
     const entities: Record<string, string> =
       command === "get"
-        ? { task: "task", project: "project" }
-        : { tasks: "task", projects: "project" };
+        ? {
+            task: "task",
+            project: "project",
+            tag: "tag",
+            folder: "folder",
+            perspective: "perspective",
+          }
+        : {
+            tasks: "task",
+            projects: "project",
+            tags: "tag",
+            folders: "folder",
+            perspectives: "perspective",
+          };
     if (entity !== undefined) {
       if (!Object.hasOwn(entities, entity)) invalid("Unknown entity.");
       if (input.entity !== undefined && input.entity !== entities[entity])
@@ -217,7 +295,7 @@ export async function parseCommand(argv: string[], read = readInput) {
       !options.has("--input") &&
       input.scope === undefined
     )
-      input.scope = input.entity === "project" ? "library" : "inbox_roots";
+      input.scope = input.entity === "task" ? "inbox_roots" : "library";
   }
   if (positional.length) invalid("Unexpected positional argument.");
   return { command: command!, input };

@@ -46,6 +46,7 @@ function operation(envelope) {
     }
     return n;
   }
+  var taskStatusValues;
   function state(t) {
     var value = t.taskStatus;
     var names = [
@@ -66,8 +67,12 @@ function operation(envelope) {
       "next",
       "overdue",
     ];
+    if (!taskStatusValues)
+      taskStatusValues = names.map(function (name) {
+        return Task.Status[name];
+      });
     for (var i = 0; i < names.length; i++)
-      if (value === Task.Status[names[i]]) return publicNames[i];
+      if (value === taskStatusValues[i]) return publicNames[i];
     fail("NATIVE_STATUS", "Unrecognized native task status.");
   }
   function relativeMinutes(n) {
@@ -82,6 +87,43 @@ function operation(envelope) {
         "Relative notification offset underflows the public minute representation.",
       );
     return minutes; // Fractional minutes are permitted; never round to integers.
+  }
+  function recurrence(t) {
+    var r = t.repetitionRule;
+    if (r === null) return null;
+    if (r === undefined) fail("NATIVE_UNAVAILABLE", "Recurrence unavailable");
+    var m = /^FREQ=(DAILY|WEEKLY);INTERVAL=([1-9][0-9]*)$/.exec(r.ruleString);
+    var schedule =
+      r.scheduleType === Task.RepetitionScheduleType.Regularly
+        ? "regularly"
+        : r.scheduleType === Task.RepetitionScheduleType.FromCompletion
+          ? "from_completion"
+          : null;
+    var anchor =
+      r.anchorDateKey === Task.AnchorDateKey.DueDate
+        ? "due"
+        : r.anchorDateKey === Task.AnchorDateKey.DeferDate
+          ? "defer"
+          : null;
+    if (
+      !m ||
+      Number(m[2]) > 1000 ||
+      !schedule ||
+      !anchor ||
+      typeof r.catchUpAutomatically !== "boolean" ||
+      (schedule === "from_completion" && r.catchUpAutomatically)
+    )
+      fail(
+        "RECURRENCE_UNSUPPORTED",
+        "Recurrence outside verified representation",
+      );
+    return {
+      frequency: m[1].toLowerCase(),
+      interval: Number(m[2]),
+      schedule: schedule,
+      anchor: anchor,
+      catch_up: r.catchUpAutomatically,
+    };
   }
   function alarm(n) {
     var kind = n.kind,
@@ -127,6 +169,70 @@ function operation(envelope) {
       (args.flagged === undefined || bool(p.flagged) === args.flagged)
     );
   }
+  function taxonomyState(t, entity) {
+    var type = entity === "tag" ? Tag : Folder;
+    if (t.status === type.Status.Active) return "active";
+    if (t.status === type.Status.Dropped) return "dropped";
+    if (entity === "tag" && t.status === Tag.Status.OnHold) return "on_hold";
+    fail("NATIVE_STATUS", "Unrecognized native taxonomy status.");
+  }
+  function taskMatches(t, args) {
+    // Global enumeration includes project roots. Exclude only those roots;
+    // never prune descendants based on the status of a containing group.
+    // Library enumeration walks ordinary descendants and Inbox roots only.
+    if (args.status !== undefined) {
+      if (state(t) !== args.status) return false;
+    } else if (
+      (!args.include_dropped && !bool(t.active)) ||
+      (!args.include_completed && bool(t.completed))
+    )
+      return false;
+    if (
+      args.available !== undefined &&
+      ["available", "next", "due_soon", "overdue"].indexOf(state(t)) >= 0 !==
+        args.available
+    )
+      return false;
+    if (args.flagged !== undefined && bool(t.flagged) !== args.flagged)
+      return false;
+    if (
+      args.tag_ids &&
+      !present(t.tags).some(function (tag) {
+        return args.tag_ids.indexOf(identifier(tag)) >= 0;
+      })
+    )
+      return false;
+    var dates = {
+      due_at: "dueDate",
+      defer_at: "deferDate",
+      planned_at: "plannedDate",
+      effective_due_at: "effectiveDueDate",
+      effective_defer_at: "effectiveDeferDate",
+    };
+    for (var field in dates) {
+      var window = args[field];
+      if (!window) continue;
+      var value = date(t[dates[field]]);
+      if (
+        value === null ||
+        (window.from && Date.parse(value) < Date.parse(window.from)) ||
+        (window.before && Date.parse(value) >= Date.parse(window.before))
+      )
+        return false;
+    }
+    if (args.estimated_minutes) {
+      var estimate = present(t.estimatedMinutes),
+        bounds = args.estimated_minutes;
+      if (estimate === null) return false;
+      number(estimate);
+      if (
+        (bounds.min !== undefined && estimate < bounds.min) ||
+        (bounds.max !== undefined && estimate > bounds.max)
+      )
+        return false;
+    }
+    return true;
+  }
   function record(
     t,
     fields,
@@ -135,6 +241,7 @@ function operation(envelope) {
     structure,
     seed,
     collection,
+    taxonomy,
   ) {
     var row = seed || { id: identifier(t) },
       nativeState;
@@ -276,6 +383,9 @@ function operation(envelope) {
       floating_time_zone: function () {
         return bool(t.shouldUseFloatingTimeZone);
       },
+      recurrence: function () {
+        return recurrence(t);
+      },
       notifications: function () {
         return elements("notifications", t.notifications, alarm);
       },
@@ -357,6 +467,30 @@ function operation(envelope) {
         };
       };
     }
+    if (taxonomy) {
+      readers.parent_id = function () {
+        return relation(t.parent);
+      };
+      readers.child_ids = function () {
+        return elements(
+          "child_ids",
+          taxonomy === "tag" ? t.tags : t.folders,
+          identifier,
+        );
+      };
+      readers.project_ids = function () {
+        return elements("project_ids", t.projects, identifier);
+      };
+      readers.status = function () {
+        return taxonomyState(t, taxonomy);
+      };
+      readers.active = function () {
+        return bool(t.active);
+      };
+      readers.effective_active = function () {
+        return bool(t.effectiveActive);
+      };
+    }
     fields.forEach(function (field) {
       if (
         field === "id" ||
@@ -410,7 +544,14 @@ function operation(envelope) {
     while (bytes(row) > 16000) {
       var widest = null,
         width = 0;
-      ["name", "note", "tag_ids", "notifications"].forEach(function (field) {
+      [
+        "name",
+        "note",
+        "tag_ids",
+        "notifications",
+        "child_ids",
+        "project_ids",
+      ].forEach(function (field) {
         if (row[field] === undefined) return;
         var values = Array.from(row[field]),
           size = bytes(row[field]);
@@ -875,11 +1016,256 @@ function operation(envelope) {
     }
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   }
+  function perspectiveRead(op, args, readAt) {
+    var builtinNames = [
+      "Inbox",
+      "Projects",
+      "Tags",
+      "Flagged",
+      "Forecast",
+      "Review",
+      "Nearby",
+      "Search",
+    ];
+    function identity(p) {
+      var key = builtinNames.find((k) => Perspective.BuiltIn[k] === p);
+      return key ? "builtin_" + key.toLowerCase() : str(p.identifier);
+    }
+    function builtin(p) {
+      return builtinNames.some((k) => Perspective.BuiltIn[k] === p);
+    }
+    function evaluate(p) {
+      var windows = present(document.windows),
+        matches = windows.filter((w) => present(w.perspective) === p),
+        result = {
+          status: "available",
+          scope: "visible_window",
+          task_ids: [],
+          project_ids: [],
+          has_more: false,
+          window_filters_possible: true,
+          order: "native_visible_preorder",
+        };
+      if (!windows.length) result.status = "no_window";
+      else if (!matches.length) result.status = "not_selected";
+      else if (matches.length !== 1) result.status = "ambiguous_windows";
+      if (result.status !== "available") return result;
+      var tree = present(matches[0].content);
+      if (tree === null)
+        fail(
+          "PERSPECTIVE_CONTENT_UNAVAILABLE",
+          "Selected window content is unavailable",
+        );
+      var visits = 0;
+      function walk(node) {
+        if (visits++ >= 2048) {
+          result.has_more = true;
+          return;
+        }
+        if (!bool(node.isRevealed)) return;
+        var object = node.object,
+          tid = null,
+          pid = null;
+        if (object instanceof Task) {
+          if (object.project !== null) pid = identifier(object.project);
+          else tid = identifier(object);
+        } else if (object instanceof Project) pid = identifier(object);
+        if (tid !== null && !result.task_ids.includes(tid))
+          result.task_ids.push(tid);
+        if (pid !== null && !result.project_ids.includes(pid))
+          result.project_ids.push(pid);
+        if (result.task_ids.length + result.project_ids.length >= 100) {
+          if (node.children.length) result.has_more = true;
+          return;
+        }
+        var children = present(node.children);
+        for (var i = 0; i < children.length; i++) {
+          if (
+            visits >= 2048 ||
+            result.task_ids.length + result.project_ids.length >= 100
+          ) {
+            result.has_more = true;
+            break;
+          }
+          walk(children[i]);
+        }
+      }
+      walk(tree.rootNode);
+      return result;
+    }
+    function row(p) {
+      var result = { id: identity(p) },
+        isBuiltin = builtin(p);
+      var readers = {
+        name: () => str(p.name),
+        kind: () => (isBuiltin ? "builtin" : "custom"),
+        identity_kind: () => (isBuiltin ? "builtin_enum" : "persistent"),
+        created_at: () => (isBuiltin ? null : date(p.added)),
+        modified_at: () => (isBuiltin ? null : date(p.modified)),
+        rule_archive: () => {
+          if (isBuiltin)
+            fail(
+              "BUILTIN_RULES_UNAVAILABLE",
+              "Built-in perspective has no custom archive",
+            );
+          var encoded = JSON.stringify(present(p.archivedFilterRules));
+          if (encoded === undefined)
+            fail("NATIVE_ARCHIVE_UNAVAILABLE", "Rule archive is not JSON");
+          return {
+            format: "native_unversioned",
+            application_version: str(app.userVersion.versionString),
+            rules: JSON.parse(encoded),
+          };
+        },
+        rule_aggregation: () => {
+          if (isBuiltin)
+            fail(
+              "BUILTIN_RULES_UNAVAILABLE",
+              "Built-in perspective has no custom aggregation",
+            );
+          var v = present(p.archivedTopLevelFilterAggregation);
+          if (v !== null && !["all", "any", "none"].includes(v))
+            fail(
+              "NATIVE_AGGREGATION_UNAVAILABLE",
+              "Unknown native aggregation",
+            );
+          return v;
+        },
+        evaluation: () => evaluate(p),
+      };
+      args.fields.forEach(function (field) {
+        if (field === "id") return;
+        try {
+          if (!readers[field])
+            fail("UNSUPPORTED_FIELD", "Unsupported perspective field");
+          var value = readers[field]();
+          if (field === "name") {
+            var chars = Array.from(value),
+              offset = args.text ? args.text.offset : 0,
+              length = args.text ? args.text.length : 512;
+            if (offset > chars.length)
+              fail("TEXT_OFFSET", "Text offset exceeds current name");
+            value = chars.slice(offset, offset + length).join("");
+            if (offset > 0 || offset + length < chars.length)
+              result.truncated = {
+                name: {
+                  offset,
+                  returned: Array.from(value).length,
+                  total: chars.length,
+                  next_offset:
+                    offset + Array.from(value).length < chars.length
+                      ? offset + Array.from(value).length
+                      : null,
+                  reason: "text_window",
+                },
+              };
+          }
+          if (bytes(value) > 12000)
+            fail(
+              "FIELD_OUTPUT_LIMIT",
+              "Perspective field exceeds bounded JSON budget; archive not truncated",
+            );
+          result[field] = value;
+        } catch (e) {
+          if (!result.unavailable) result.unavailable = {};
+          result.unavailable[field] = {
+            code: e.code || "NATIVE_READ_FAILED",
+            reason: e.code ? e.message : "Perspective field unavailable",
+          };
+        }
+      });
+      if (bytes(result) > 16000)
+        fail(
+          "RECORD_OUTPUT_LIMIT",
+          "Perspective record exceeds bounded budget; select fewer fields",
+        );
+      return result;
+    }
+    var all = present(Perspective.all),
+      ids = all.map(identity);
+    if (new Set(ids).size !== ids.length)
+      fail("NATIVE_STRUCTURE", "Duplicate perspective identity");
+    if (op === "get")
+      return {
+        read_at: readAt,
+        results: args.ids.map((id) => {
+          try {
+            var p;
+            if (id.startsWith("builtin_")) {
+              var key = builtinNames.find(
+                (k) => "builtin_" + k.toLowerCase() === id,
+              );
+              p = key ? Perspective.BuiltIn[key] : null;
+              if (!all.includes(p)) p = null;
+            } else p = present(Perspective.Custom.byIdentifier(id));
+            if (p === null)
+              return {
+                id,
+                status: "not_found",
+                error: {
+                  code: "NOT_FOUND",
+                  message: "No perspective has the exact identity",
+                },
+              };
+            if (identity(p) !== id)
+              fail("NATIVE_IDENTITY", "Perspective identity mismatch");
+            return { id, status: "ok", perspective: row(p) };
+          } catch (e) {
+            return {
+              id,
+              status: "error",
+              error: {
+                code: e.code || "NATIVE_READ_FAILED",
+                message: e.code ? e.message : "Perspective read unavailable",
+              },
+            };
+          }
+        }),
+      };
+    if (op !== "query" || args.scope !== "library")
+      fail("UNSUPPORTED_SCOPE", "Perspective inventory requires library scope");
+    var candidates = all
+      .map((p) => ({
+        perspective: p,
+        key: { id: identity(p), created_at: builtin(p) ? null : date(p.added) },
+      }))
+      .sort((a, b) => compare(a.key, b.key));
+    if (args.after)
+      candidates = candidates.filter((c) => compare(c.key, args.after) > 0);
+    var items = [],
+      keys = [],
+      used = 0,
+      stop = "complete";
+    for (var i = 0; i < candidates.length; i++) {
+      if (items.length >= args.limit) {
+        stop = "page_limit";
+        break;
+      }
+      var value = row(candidates[i].perspective),
+        cost = bytes(value) + bytes(candidates[i].key) + 2;
+      if (used + cost > 60000 && items.length) {
+        stop = "response_bytes";
+        break;
+      }
+      items.push(value);
+      keys.push(candidates[i].key);
+      used += cost;
+    }
+    return {
+      items,
+      keys,
+      has_more: stop !== "complete",
+      stop_reason: stop,
+      read_at: readAt,
+    };
+  }
   try {
     var args = envelope.args,
       result,
       readAt = new Date().toISOString();
-    if (envelope.op === "status") {
+    if (args.entity === "perspective")
+      result = perspectiveRead(envelope.op, args, readAt);
+    else if (envelope.op === "status") {
       var api = apiSupport();
       result = {
         version: app.userVersion.versionString,
@@ -895,7 +1281,15 @@ function operation(envelope) {
       var results = args.ids.map(function (id) {
         try {
           var isProject = args.entity === "project";
-          var t = isProject ? Project.byIdentifier(id) : Task.byIdentifier(id);
+          var taxonomy =
+            args.entity === "tag" || args.entity === "folder"
+              ? args.entity
+              : undefined;
+          var t = taxonomy
+            ? (taxonomy === "tag" ? Tag : Folder).byIdentifier(id)
+            : isProject
+              ? Project.byIdentifier(id)
+              : Task.byIdentifier(id);
           if (
             t === null &&
             isProject &&
@@ -915,13 +1309,11 @@ function operation(envelope) {
               status: "not_found",
               error: {
                 code: "NOT_FOUND",
-                message: isProject
-                  ? "No project has this persistent ID."
-                  : "No task has this persistent ID.",
+                message: "No " + args.entity + " has this persistent ID.",
               },
             };
           present(t);
-          if (!isProject && present(t.project) !== null)
+          if (!isProject && !taxonomy && present(t.project) !== null)
             return {
               id: id,
               status: "error",
@@ -932,7 +1324,7 @@ function operation(envelope) {
               },
             };
           var item = { id: id, status: "ok" };
-          item[isProject ? "project" : "task"] = record(
+          item[args.entity] = record(
             t,
             args.fields,
             args.text,
@@ -940,6 +1332,7 @@ function operation(envelope) {
             undefined,
             undefined,
             args.collection,
+            taxonomy,
           );
           if (args.tree)
             item.tree = projectTree(t, args.tree, 30000 - bytes(item) - 512);
@@ -973,10 +1366,41 @@ function operation(envelope) {
     } else if (envelope.op === "query" || envelope.op === "project_select") {
       var source,
         projectQuery = args.entity === "project",
+        taxonomy =
+          args.entity === "tag" || args.entity === "folder"
+            ? args.entity
+            : undefined,
         planMore = false;
+      if (
+        args.planned_at &&
+        apiSupport().support.members.planned_dates !== "declared"
+      )
+        fail(
+          "UNSUPPORTED_FILTER",
+          "Planned-date filtering requires declared native plannedDate support.",
+        );
+      if (args.tag_ids)
+        args.tag_ids.forEach(function (id) {
+          if (present(Tag.byIdentifier(id)) === null)
+            fail("TAG_NOT_FOUND", "No tag has the requested persistent ID.");
+        });
       if (projectQuery && args.scope === "library")
         source = args.selection ? [] : present(flattenedProjects);
-      else if (args.scope === "inbox_roots") source = inbox;
+      else if (taxonomy)
+        source = present(taxonomy === "tag" ? flattenedTags : flattenedFolders);
+      else if (args.scope === "library") {
+        source = [];
+        function collectTasks(nodes) {
+          present(nodes).forEach(function (t) {
+            source.push(t);
+            collectTasks(t.tasks);
+          });
+        }
+        collectTasks(inbox);
+        present(flattenedProjects).forEach(function (p) {
+          Array.prototype.push.apply(source, present(p.flattenedTasks));
+        });
+      } else if (args.scope === "inbox_roots") source = inbox;
       else if (args.scope === "project") {
         var project = present(Project.byIdentifier(args.project_id));
         if (project === null)
@@ -987,12 +1411,21 @@ function operation(envelope) {
           args.depth === "direct" ? project.tasks : project.flattenedTasks,
         );
       } else fail("UNSUPPORTED_SCOPE", "Task query scope is not implemented.");
+      // Completed work can dominate the library. Sort fresh native keys first
+      // and evaluate this predicate only until the bounded page is filled.
+      var deferredCompleted =
+        args.entity === "task" &&
+        args.scope === "library" &&
+        args.status === "completed";
       var candidates = source
         .filter(function (t) {
           if (projectQuery) return projectMatches(t, args);
-          return (
-            bool(t.active) && (args.include_completed || !bool(t.completed))
-          );
+          if (taxonomy)
+            return (
+              args.status === undefined ||
+              taxonomyState(t, taxonomy) === args.status
+            );
+          return deferredCompleted || taskMatches(t, args);
         })
         .map(function (t) {
           return {
@@ -1046,9 +1479,13 @@ function operation(envelope) {
         stop = planMore ? args.selection.stop_reason : "complete";
       for (var i = 0; i < candidates.length; i++) {
         if (items.length >= args.limit) {
+          if (deferredCompleted && !taskMatches(candidates[i].task, args))
+            continue;
           stop = "page_limit";
           break;
         }
+        if (deferredCompleted && !taskMatches(candidates[i].task, args))
+          continue;
         if (projectQuery && args.selection) {
           var selectedProject = present(
             Project.byIdentifier(candidates[i].key.id),
@@ -1074,6 +1511,8 @@ function operation(envelope) {
             projectQuery ? args.project_supplements || {} : undefined,
             undefined,
             args.selection ? args.selection.items[i] : undefined,
+            undefined,
+            taxonomy,
           ),
           size = bytes(row);
         if (items.length && usedBytes + size > 30000) {
@@ -1087,7 +1526,7 @@ function operation(envelope) {
       result = {
         items: items,
         keys: keys,
-        has_more: planMore || items.length < candidates.length,
+        has_more: planMore || i < candidates.length,
         stop_reason: stop,
         read_at: readAt,
       };

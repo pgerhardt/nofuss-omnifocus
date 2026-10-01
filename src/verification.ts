@@ -12,11 +12,16 @@ export const READ_VERIFICATION = {
     "field_selection_and_text_windows",
     "overview_and_explicit_waiting",
     "notifications_normalized_core_cli_mcp_and_continuation",
+    "library_discovery_and_exact_taxonomy_hierarchy",
+    "task_scheduling_including_planned_millisecond_dates",
+    "bounded_recurrence_and_absolute_due_relative_alarms",
+    "perspective_inventory_archives_and_selected_visible_window",
   ],
   gaps: [
     "notifications_rare_states_not_live_verified",
     "oversized_collections_test_only",
-    "planned_dates_not_live_verified",
+    "rare_positive_library_filter_shapes_test_only",
+    "perspective_custom_selected_and_no_window_evaluation_test_only",
     "waiting_overlap_and_tagged_inbox_test_only",
   ],
   exceptions: {

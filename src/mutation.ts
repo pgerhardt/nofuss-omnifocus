@@ -162,8 +162,8 @@ export class MutationBoundary {
         item_key: item.item_key,
         ...(item.resource ? { resource: item.resource } : {}),
         outcome:
-          readback.settled && readback.not_attempted
-            ? readback.not_attempted
+          readback.settled && (item.not_attempted || readback.not_attempted)
+            ? (item.not_attempted || readback.not_attempted)!
             : readback.settled && item.all_postconditions
               ? ("applied" as const)
               : item.some_effects

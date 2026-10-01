@@ -99,7 +99,7 @@ for (const [scope, input] of [
   ["task.create", { ...create, tag_ids: ["missing"] }],
   ["task.create", { ...create, tag_ids: ["task"] }],
   ["task.create", { ...create, tag_ids: ["tag-a", "tag-a"] }],
-  ["task.create", { ...create, due_at: null }],
+  ["task.create", { ...create, due_at: "invalid" }],
   ["task.update", { task_id: "missing", changes: { name: "x" } }],
   ["task.update", { task_id: "root", changes: { name: "x" } }],
   ["task.update", { task_id: "task", changes: { completed: true } }],

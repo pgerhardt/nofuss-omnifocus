@@ -1,87 +1,39 @@
-# NoFuss for OmniFocus — 0.1.0-beta.1
+# NoFuss for OmniFocus — 0.1.0-beta.2
 
-First gated safe-write beta, distributed only as a GitHub source prerelease.
-Install from the tag using the [README](README.md). No npm registry publication,
-custom binary assets, or automatic installation/activation changes.
+Post-capture parity checkpoint, distributed as a sanitized GitHub source prerelease.
+Build using the [README](README.md). `private:true` remains set; no npm publication.
 
-- Task create, update (`name`, `note`, `flagged`, `tag_ids`), and ordinary completion.
-- Read-only by default: exactly four MCP read tools; unauthorized CLI apply returns
-  `WRITE_NOT_AUTHORIZED`. Host operation/project authorization and MCP client tool
-  allowlisting are separate gates.
-- Preview by default, explicit apply with durable request keys, conservative
-  conflict checks, durable journals/locks and independent exact-ID readback.
-- Distinct applied/rejected/conflict/partial/unknown outcomes; uncertain requests
-  reconcile read-only and are never blindly replayed.
-- Independently verified live task writes on OmniFocus 4.9.2 (188.3), with disposable
-  object cleanup. This is not certification of every version, crash or concurrency case.
+## Included since beta.1
 
-Repeating/group/automatic-ancestor completion remains unsupported before setters.
-Lost create identity remains unknown with no blind replay. No project, review,
-recurrence, attachment/location/perspective or arbitrary-script writes. Supported
-fields and other limitations are listed in [task writes](docs/task-writes.md).
+- Library task filters, tag/folder inventories and hierarchy.
+- Task due/defer/planned dates and estimates; exact project/parent/Inbox moves.
+- Project create/metadata/type/status/complete/drop/folder move; taxonomy create,
+  rename, parent move and supported tag status.
+- Ordinary leaf drop/duplicate/hard delete; calendar review intervals and mark-reviewed.
+- Typed daily/weekly anchored recurrence and absolute/due-relative notifications.
+- Whole-request homogeneous task create/update/move/ordinary-complete batches.
+- Perspective inventory/get, native custom archives and bounded selected-window reads.
+- Explicit direct Inbox creation, exact ordinary project/Inbox-parent creation and
+  scoped scalar/scheduling Inbox updates, including nested Inbox descendants.
 
-The public history contains sanitized release snapshots. Runtime sources match
-the reviewed beta; public build metadata identifies the public commit. Existing
-alpha tag/release remains unchanged. `private:true`, licenses and notices remain.
+Source review added a narrow guard against tentative containment on an Inbox update
+or on an ancestor of an exact parent. Both planning and native apply reject before
+setters. No extra product capability was added during review.
 
----
+## Safety and limitations
 
-# NoFuss for OmniFocus — 0.1.0-alpha.1
+Default MCP catalog remains four read tools. Host authorization is fail-closed;
+Inbox permission defaults false and never authorizes a project. Generic write verbs
+share CLI/core/MCP semantics, durable keys, locks, preconditions and independent
+readback. Unknown identity stays unknown, with no automatic replay.
 
-First read-only alpha of the **CLI + MCP interface for AI agents**, distributed as
-a GitHub source release. Build and run using the [README](README.md). No npm
-registry package is published. This public repository is a sanitized release
-snapshot; it does not contain the private development history.
+Requires macOS, Node.js 22+ and OmniFocus Automation access. Native evidence covers
+OmniFocus 4.9.2 (188.3), not universal versions/clients. Monthly/yearly/custom/inherited
+recurrence, repeating completion, subtree lifecycle, reorder, project hard delete,
+taxonomy destructive operations and perspective writes remain deferred. Perspective
+evaluation is visible-window observation. Attachments, locations, true sync completion,
+advanced floating/history/alarm states and import/export remain outside scope.
 
-## Included
-
-- Two interfaces over the same verified core: direct `nofuss-omnifocus` commands
-  and the stdio MCP entry `nofuss-omnifocus mcp`.
-- Exact task/project reads, selected fields, Inbox and project-scoped task queries,
-  project inventory, and project trees in native hierarchy order.
-- Workload/review overviews and request-scoped waiting classification using explicit
-  tag IDs. Task/project states, dates, notes, tags and supported notification reads.
-- Bounded pagination and text/collection/tree continuation, with explicit coverage,
-  errors, truncation and unavailable fields. Continuations are live, not snapshots.
-- JSON CLI output and `doctor` diagnostics; MCP tools `nofuss_get`, `nofuss_query`,
-  `nofuss_overview` and `nofuss_status`.
-- Repository/package identity `nofuss-omnifocus`. The executable
-  `nofuss-omnifocus-mcp` remains an MCP compatibility alias; the former npm registry
-  name is not automatically aliased.
-
-## Interface choice and presentation
-
-MCP is recommended for the specifically measured Codex read-only sandbox. In one
-controlled evaluation, MCP completed the tested workflows while direct CLI native
-execution was unavailable. Direct CLI and MCP both returned equivalent domain facts
-in host-level tests. Direct CLI remains useful in native-permitted shell environments.
-
-No direct-CLI workflow token advantage was demonstrated. One observation per
-workflow/interface does not establish general performance superiority, and failed
-CLI workflows are not comparable successful completions.
-
-Retrieve complete needed data, retain/process it deterministically, aggregate before
-display where appropriate, and expose one domain representation to the model where
-the client permits. Preserve every row in explicitly requested complete hierarchies.
-
-## Safety and material limitations
-
-Read-only: no writes, task/project mutation, raw-script tool or sync trigger.
-Task text and notes are untrusted data. Connectivity does not establish sync completion.
-
-Requires macOS, Node.js 22+ and an already running OmniFocus with Automation access.
-Direct CLI native access depends on its process environment. Live behavior was
-validated on OmniFocus 4.9.2 (188.3), not all runtime versions or clients.
-
-Attachment CRUD and perspectives are unavailable. Relative notification offsets are
-publicly expressed in minutes, including fractions; reads normalize native raw seconds.
-Defer-relative notifications are unsupported. Rare notification states and every
-repeat/date/floating edge case are not certified. See the [read contract](docs/contract.md) for exact scope.
-
-The local runtime package passed its read-conformance and exact-artifact checks;
-this source release does not broaden those guarantees or activate an installation.
-The package retains `private:true`; npm is used for locked dependencies and build
-scripts, not registry publication.
-
-[MIT license](LICENSE); [third-party notices](THIRD_PARTY_NOTICES.md) preserved.
-NoFuss for OmniFocus is independent and is not affiliated with or endorsed by The Omni Group.
+See [safe writes](docs/safe-writes.md), [capture](docs/inbox-parent-capture.md),
+[read contract](docs/contract.md) and [local artifact discipline](docs/local-release.md).
+Prior alpha/beta tags and artifacts remain valid rollback points.

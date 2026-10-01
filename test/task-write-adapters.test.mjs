@@ -71,6 +71,7 @@ test("PROCESS DOUBLE: CLI explicit apply, keys, default preview, default deny an
 for (const scopes of [
   undefined,
   ["task.update"],
+  ["task.move"],
   ["task.create", "task.update", "task.complete"],
 ])
   test(
@@ -96,7 +97,7 @@ for (const scopes of [
           tools.map((x) => x.name),
           [
             ...reads,
-            ...["task.create", "task.update", "task.complete"]
+            ...["task.create", "task.update", "task.complete", "task.move"]
               .filter((s) => scopes?.includes(s))
               .map((s) => "nofuss_" + s.slice(5)),
           ],
@@ -105,6 +106,25 @@ for (const scopes of [
           assert.equal(tool.annotations.readOnlyHint, false);
           assert.equal(tool.annotations.idempotentHint, false);
           assert.equal(tool.outputSchema, undefined);
+        }
+        if (scopes?.includes("task.move")) {
+          const input = {
+            task_id: "task",
+            destination: { kind: "inbox" },
+            apply: true,
+            request_key: "mcp-move",
+          };
+          const actual = await client.callTool({
+            name: "nofuss_move",
+            arguments: input,
+          });
+          assert.equal(actual.structuredContent.items[0].outcome, "applied");
+          const moved = cli(dir, ["move", "task", "--input", "-", "--apply"], {
+            ...input,
+            request_key: "cli-move",
+          });
+          assert.equal(moved.exit, 0);
+          assert.equal(moved.body.items[0].outcome, "applied");
         }
         if (scopes?.includes("task.create")) {
           const input = {
@@ -133,3 +153,179 @@ for (const scopes of [
       }
     },
   );
+test("PROCESS DOUBLE: recurrence/notification update routes through actual CLI and MCP union schemas", async (t) => {
+  const dir = await setup(t, ["task.update"]);
+  const changes = {
+    recurrence: null,
+    notifications: [{ kind: "absolute", fire_at: "2099-02-03T01:02:03.456Z" }],
+  };
+  const actual = cli(
+    dir,
+    ["update", "task", "--input", "-", "--apply", "--request-key", "cli-alarm"],
+    { task_id: "task", changes },
+  );
+  assert.equal(actual.exit, 0);
+  assert.equal(actual.body.items[0].outcome, "applied");
+  const client = new Client({ name: "recurrence-test", version: "1" }),
+    transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [
+        "--import",
+        "./test/task-write-bootstrap.mjs",
+        "dist/cli.js",
+        "mcp",
+      ],
+      env: { ...process.env, NOFUSS_STATE_DIR: dir },
+      stderr: "pipe",
+    });
+  try {
+    await client.connect(transport);
+    assert.deepEqual(
+      (await client.listTools()).tools.map((t) => t.name),
+      [...reads, "nofuss_update"],
+    );
+    const result = await client.callTool({
+      name: "nofuss_update",
+      arguments: {
+        task_id: "task",
+        changes,
+        apply: true,
+        request_key: "mcp-alarm",
+      },
+    });
+    assert.equal(result.structuredContent.items[0].outcome, "applied");
+  } finally {
+    await client.close();
+  }
+});
+test("PROCESS DOUBLE: actual CLI/MCP grouped batch schema and durable item-key parity", async (t) => {
+  const dir = await setup(t, ["task.batch", "task.create"]);
+  const input = {
+    action: "create",
+    items: [
+      { item_key: "one", project_id: "project", name: "one" },
+      { item_key: "two", project_id: "project", name: "two" },
+    ],
+  };
+  const r = cli(
+    dir,
+    ["batch", "task", "--input", "-", "--apply", "--request-key", "cli-batch"],
+    input,
+  );
+  assert.equal(r.exit, 0);
+  assert.deepEqual(
+    r.body.items.map((i) => i.item_key),
+    ["one", "two"],
+  );
+  const client = new Client({ name: "batch-test", version: "1" }),
+    transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [
+        "--import",
+        "./test/task-write-bootstrap.mjs",
+        "dist/cli.js",
+        "mcp",
+      ],
+      env: { ...process.env, NOFUSS_STATE_DIR: dir },
+      stderr: "pipe",
+    });
+  try {
+    await client.connect(transport);
+    assert.deepEqual(
+      (await client.listTools()).tools.map((t) => t.name),
+      [...reads, "nofuss_create", "nofuss_batch"],
+    );
+    const result = await client.callTool({
+      name: "nofuss_batch",
+      arguments: { ...input, apply: true, request_key: "mcp-batch" },
+    });
+    assert.ok(
+      result.structuredContent.items.every((i) => i.outcome === "applied"),
+    );
+    assert.deepEqual(
+      result.structuredContent.items.map((i) => i.item_key),
+      r.body.items.map((i) => i.item_key),
+    );
+  } finally {
+    await client.close();
+  }
+});
+test("PROCESS DOUBLE: Inbox-only CLI/core/MCP parity and unchanged generic catalog", async (t) => {
+  const dir = await setup(t);
+  await writeFile(
+    join(dir, "mutation-authorization.json"),
+    JSON.stringify({
+      schema_version: 1,
+      scopes: ["task.create", "task.update"],
+      project_ids: [],
+      allow_inbox: true,
+    }),
+    { mode: 0o600 },
+  );
+  const { NoFussCore } = await import("../dist/core.js");
+  const { taskFixture } = await import("./task-write-fixture.mjs");
+  const input = {
+    destination: { kind: "inbox" },
+    name: "Inbox adapter",
+    note: "scalar",
+    flagged: true,
+    due_at: "2099-01-02T12:00:00Z",
+  };
+  const core = new NoFussCore(taskFixture(), {}, dir);
+  const expected = await core.mutate("task.create", input);
+  assert.deepEqual(
+    cli(dir, ["create", "task", "--input", "-"], input).body,
+    expected,
+  );
+  const client = new Client({ name: "NFO-38", version: "1" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["--import", "./test/task-write-bootstrap.mjs", "dist/cli.js", "mcp"],
+    env: { ...process.env, NOFUSS_STATE_DIR: dir },
+    stderr: "pipe",
+  });
+  try {
+    await client.connect(transport);
+    assert.deepEqual(
+      (await client.listTools()).tools.map((t) => t.name),
+      [...reads, "nofuss_create", "nofuss_update"],
+    );
+    const p = await client.callTool({
+      name: "nofuss_create",
+      arguments: input,
+    });
+    assert.deepEqual(p.structuredContent, expected);
+    const r = await client.callTool({
+      name: "nofuss_create",
+      arguments: {
+        ...p.structuredContent.apply_input,
+        apply: true,
+        request_key: "inbox-mcp",
+      },
+    });
+    assert.equal(r.structuredContent.items[0].outcome, "applied");
+    const id = r.structuredContent.items[0].resource.id;
+    const u = await client.callTool({
+      name: "nofuss_update",
+      arguments: {
+        task_id: id,
+        changes: { name: "updated", planned_at: "2099-01-01T12:00:00Z" },
+        apply: true,
+        request_key: "inbox-update",
+      },
+    });
+    assert.equal(u.structuredContent.items[0].outcome, "applied");
+    const denied = await client.callTool({
+      name: "nofuss_create",
+      arguments: {
+        destination: { kind: "parent", task_id: "task" },
+        name: "project child",
+        apply: true,
+        request_key: "denied-parent",
+      },
+    });
+    assert.equal(denied.structuredContent.items[0].outcome, "rejected");
+  } finally {
+    await client.close();
+  }
+});

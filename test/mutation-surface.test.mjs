@@ -41,7 +41,9 @@ test("OFFLINE: CLI exposes task commands while bare mutation dispatch remains un
       "overview",
       "doctor",
       "mcp",
-      "create|update|complete",
+      "create|update|complete|move|drop|duplicate|delete",
+      "batch",
+      "review",
     ],
   );
   const core = new NoFussCore(

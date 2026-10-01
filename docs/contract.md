@@ -774,11 +774,11 @@ Stopping a launcher cannot guarantee cancellation of an in-app read already sent
 Buffered results from expired launchers are discarded; separate pipes and request
 IDs prevent a late response from satisfying the next request. This does not prove
 that already-dispatched in-app work stopped before the next request.
-No writes exist, so uncertain-write handling is outside this slice.
+Authorized mutation uncertainty is documented in [safe writes](safe-writes.md).
 
 The controlled alpha assumes one client and one server process. Its queue coordinates
 one MCP process only. Multiple clients/processes may contend
-for the same application; no machine-wide coordination is claimed. A daemon/PTY
+for the same application; read queue coordination is per-process. Authorized writers additionally use the shared durable mutation lock. A daemon/PTY
 has not been introduced. Source code and metadata describe actual current support,
 not every planned alpha capability. Status probes connectivity afresh; it does not
 cache success or infer synchronization completion. No personal native diagnostics
@@ -802,15 +802,12 @@ is true only for that exact observed version/build, false on another build and n
 without a native observation. The shipped evidence manifest is not a promise that
 every field/value has native coverage. Direct project counts and review fixed use
 the verified scripting supplement despite their absence from OmniJS declarations.
-Unsupported gates remain false, including locations, Inbox-forwarding mutations
-(distinct from Inbox queries), numeric available-child counts and defer-relative
-notifications. See `nofuss_status.verification` for the shipped verification scope and remaining
-native coverage gaps.
+Unsupported read gates include locations, Inbox-forwarding mutations (distinct from
+explicit Inbox capture), numeric available-child counts and defer-relative notifications.
 
-## Gated task-write contract
+## Authorized mutation boundary
 
-The read contract above is unchanged. The beta provides a separate gated
-[task-write contract](task-writes.md) through the shared core. Default MCP
-registers only four reads. Apply requires explicit host operation/project scopes;
-MCP discovery also depends on the client tool allowlist. Independent readback,
-durable request records and uncertain outcomes are described in the task guide.
+The default read catalog remains unchanged. Explicit host authorization can expose
+supported generic write verbs using the same CLI/core/MCP semantics. See
+[safe writes](safe-writes.md) and [Inbox/parent capture](inbox-parent-capture.md) for
+current supported subsets, scopes, independent readback and no-replay rules.
