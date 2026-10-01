@@ -90,7 +90,15 @@ export const TaskUpdateInput = z
     }),
   })
   .strict();
-export const TaskCompleteInput = z.object({ ...options, task_id: id }).strict();
+export const TaskLifecycleInput = z
+  .object({ ...options, task_id: id })
+  .strict();
+export const TaskSubtreeLifecycleInput = TaskLifecycleInput.extend({
+  subtree: z.boolean().optional(),
+});
+export const TaskCompleteInput = TaskSubtreeLifecycleInput.extend({
+  occurrence: z.literal("current").optional(),
+});
 export const TaskMoveInput = z
   .object({
     ...options,
@@ -107,9 +115,9 @@ export const TaskInputs = {
   "task.update": TaskUpdateInput,
   "task.complete": TaskCompleteInput,
   "task.move": TaskMoveInput,
-  "task.drop": TaskCompleteInput,
-  "task.duplicate": TaskCompleteInput,
-  "task.delete": TaskCompleteInput,
+  "task.drop": TaskSubtreeLifecycleInput,
+  "task.duplicate": TaskSubtreeLifecycleInput,
+  "task.delete": TaskSubtreeLifecycleInput,
 } as const;
 const Receipt = z
   .object({
@@ -195,8 +203,14 @@ export class TaskWrites {
         "INVALID_MUTATION",
         "Update must specify at least one supported field.",
       );
+    const completingOccurrence =
+      scope === "task.complete" &&
+      "occurrence" in args &&
+      args.occurrence === "current";
     const extended =
-      "recurrence" in itemChanges || "notifications" in itemChanges;
+      completingOccurrence ||
+      "recurrence" in itemChanges ||
+      "notifications" in itemChanges;
     const destination =
       "destination" in args
         ? (args.destination as z.infer<typeof TaskMoveInput>["destination"])
@@ -233,7 +247,9 @@ export class TaskWrites {
               ? { project_id: args.project_id }
               : destination
                 ? { destination }
-                : null,
+                : completingOccurrence
+                  ? { occurrence: "current" }
+                  : null,
         },
       ],
     };
@@ -432,7 +448,47 @@ export class TaskWrites {
             );
         }
         if (scope === "task.complete") {
-          if (target.repeating || target.ancestor_repeating)
+          if (completingOccurrence) {
+            const rule = target.recurrence as Snapshot | null;
+            if (args.apply && policy?.allow_repeating_completion !== true)
+              throw new MutationError(
+                "WRITE_NOT_AUTHORIZED",
+                "Repeating completion requires explicit host permission.",
+              );
+            if (
+              !target.repeating ||
+              !rule ||
+              rule.unsupported ||
+              !["regularly", "from_completion"].includes(
+                rule.schedule as string,
+              ) ||
+              rule.catch_up ||
+              target.ancestor_repeating ||
+              target.ancestor_auto_complete ||
+              target.ancestor_tentative ||
+              target.assigned_container_id !== null ||
+              target.attachment_count !== 0 ||
+              (target.notifications as Json[]).length ||
+              target.planned_supported !== true ||
+              target.planned_at !== null ||
+              target.floating ||
+              (rule.anchor === "due"
+                ? target.defer_at !== null
+                : target.due_at !== null) ||
+              typeof target.next_occurrence_at !== "string" ||
+              !Number.isFinite(Date.parse(target.next_occurrence_at)) ||
+              (rule.schedule === "regularly" &&
+                Date.parse(
+                  (rule.anchor === "due"
+                    ? target.due_at
+                    : target.defer_at) as string,
+                ) <= Date.now())
+            )
+              throw new MutationError(
+                "REPEATING_COMPLETION_UNSUPPORTED",
+                "Current occurrence requires a future regular rule or a plain from-completion interval, a local single anchor, no catch-up/alarms/attachments/planned/floating dates or unsafe ancestors.",
+              );
+          } else if (target.repeating || target.ancestor_repeating)
             throw new MutationError(
               "REPEATING_COMPLETION_UNSUPPORTED",
               "Repeating task or ancestor completion is unsupported.",
@@ -476,7 +532,7 @@ export class TaskWrites {
             "INVALID_MUTATION",
             "Defer date must not follow due date.",
           );
-        if (extended) {
+        if (extended && !completingOccurrence) {
           if (
             target.has_children ||
             target.completed ||
@@ -560,7 +616,12 @@ export class TaskWrites {
               field: "snapshot",
               expected: r.facts.snapshot!,
             })),
-          predicted_changes: item.changes,
+          predicted_changes: completingOccurrence
+            ? {
+                continuing_task_id: target.id!,
+                generates_completed_history: true,
+              }
+            : item.changes,
           payload: {
             project_id: projectId,
             inbox_authorized: inboxOperation,
@@ -590,6 +651,7 @@ export class TaskWrites {
         if (
           scope !== "task.create" &&
           scope !== "task.duplicate" &&
+          !completingOccurrence &&
           targetId !== req.items[0]!.targets[0]!.id
         )
           throw Error(
@@ -614,6 +676,144 @@ export class TaskWrites {
                 some_effects: false,
                 evidence: [
                   "Native validation acknowledged zero setters; separate exact-fact evaluation completed.",
+                ],
+              },
+            ],
+          };
+        }
+        if (completingOccurrence) {
+          const sourceId = req.items[0]!.targets[0]!.id;
+          if (
+            !r.source_task_id ||
+            r.source_task_id !== sourceId ||
+            !targetId ||
+            targetId === sourceId ||
+            !after
+          )
+            throw Error(
+              "Completed history identity missing; never infer or retry",
+            );
+          const continuing = await this.snapshot(
+            { entity: "task", id: sourceId },
+            true,
+          );
+          if (!continuing) throw Error("Continuing exact identity missing");
+          const baseline = (plan.items[0]!.payload as { baseline: Snapshot })
+            .baseline;
+          const observed = await this.core.get({
+            ids: [sourceId, targetId],
+            fields: [
+              "name",
+              "note",
+              "flagged",
+              "tag_ids",
+              "project_id",
+              "parent_id",
+              "completed",
+              "effective_completed",
+              "completed_at",
+              "due_at",
+              "defer_at",
+              "planned_at",
+              "estimated_minutes",
+              "recurrence",
+              "effective_due_at",
+              "effective_defer_at",
+            ],
+          });
+          for (const [index, snapshot] of [continuing, after].entries()) {
+            const row = observed.results[index]?.task;
+            if (!row || row.unavailable || row.truncated)
+              throw Error("Independent occurrence read incomplete");
+            for (const key of [
+              "name",
+              "note",
+              "flagged",
+              "project_id",
+              "parent_id",
+              "completed",
+              "effective_completed",
+              "completed_at",
+              "due_at",
+              "defer_at",
+              "planned_at",
+              "estimated_minutes",
+              "recurrence",
+              "effective_due_at",
+              "effective_defer_at",
+            ] as const)
+              if (canonical(row[key]) !== canonical(snapshot[key]))
+                throw Error("Independent occurrence paths disagree");
+            if (
+              canonical([...(row.tag_ids ?? [])].sort()) !==
+              canonical(snapshot.tag_ids)
+            )
+              throw Error("Independent occurrence tags disagree");
+          }
+          const checks: boolean[] = [
+            continuing.completed === false,
+            continuing.effective_completed === false,
+            continuing.completed_at === null,
+            after.completed === true,
+            after.effective_completed === true,
+            typeof after.completed_at === "string",
+          ];
+          for (const snapshot of [continuing, after])
+            for (const key of [
+              "project_id",
+              "parent_id",
+              "name",
+              "note",
+              "flagged",
+              "tag_ids",
+              "estimated_minutes",
+              "recurrence_raw",
+              "floating",
+              "has_children",
+              "attachment_count",
+              "ancestor_repeating",
+              "ancestor_auto_complete",
+              "notifications",
+            ])
+              checks.push(
+                canonical(snapshot[key]) === canonical(baseline[key]),
+              );
+          for (const key of ["due_at", "defer_at", "planned_at"])
+            checks.push(canonical(after[key]) === canonical(baseline[key]));
+          const rule = baseline.recurrence as Snapshot;
+          checks.push(
+            continuing[rule.anchor === "due" ? "due_at" : "defer_at"] ===
+              baseline.next_occurrence_at,
+            continuing[rule.anchor === "due" ? "defer_at" : "due_at"] === null,
+            continuing.planned_at === null,
+            canonical(continuing.preserved) === canonical(baseline.preserved),
+          );
+          if (rule.schedule === "from_completion")
+            checks.push(
+              after.next_occurrence_at === baseline.next_occurrence_at,
+            );
+          const siblings = continuing.sibling_ids as string[];
+          checks.push(
+            siblings.filter((x) => x === targetId).length === 1,
+            canonical(siblings.filter((x) => x !== targetId)) ===
+              canonical(baseline.sibling_ids),
+            canonical(after.sibling_ids) === canonical(siblings),
+          );
+          return {
+            settled: true,
+            items: [
+              {
+                item_key: "task",
+                resource: { entity: "task", id: targetId },
+                all_postconditions: checks.every(Boolean),
+                some_effects:
+                  after.completed === true ||
+                  continuing.due_at !== baseline.due_at ||
+                  continuing.defer_at !== baseline.defer_at,
+                evidence: [
+                  "Independent exact native facts and public reads identify the completed history resource and continuing original task.",
+                  "Continuing task ID: " + sourceId,
+                  "Completed history task ID: " + targetId,
                 ],
               },
             ],
@@ -997,6 +1197,7 @@ export class TaskWrites {
             extended,
             authorized_project_ids: current.project_ids,
             authorized_task_ids: current.task_ids,
+            authorized_repeating_completion: current.allow_repeating_completion,
             authorized_inbox: current.allow_inbox,
           });
           await recordReceipt(Receipt.parse(result));

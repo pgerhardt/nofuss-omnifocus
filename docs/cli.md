@@ -185,7 +185,8 @@ bridge, cross-process scheduler or native result cache is added.
 
 Writes require explicit host authorization and apply intent. See [safe writes](safe-writes.md)
 for current subsets and exclusions. Arbitrary scripts, sync-completion truth,
-attachment CRUD, locations and perspective mutation remain unsupported.
+attachment CRUD and locations remain deferred. Typed custom perspective mutation is
+available on the development branch; headless evaluation remains unavailable.
 `doctor` reports the same build/native/capability/verification facts as `nofuss_status`.
 
 ## Modules
@@ -207,8 +208,8 @@ semantic mutation operations. Unknown commands cannot become native scripts.
 
 ## Gated mutation commands
 
-Create/update/complete/move/drop/duplicate/delete task commands and the supported
-project/taxonomy/review/batch verbs use strict JSON via `--input FILE|-`.
+Create/update/complete/move/reorder/drop/duplicate/delete task commands and the supported
+project/taxonomy/perspective/review/batch verbs use strict JSON via `--input FILE|-`.
 Default is preview. Apply requires `--apply --request-key KEY` plus private host
 operation/object authorization. See [safe writes](safe-writes.md) for supported
 subsets, pinned input, outcomes, exits and no-replay behavior; CLI help lists grammar.

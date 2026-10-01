@@ -41,7 +41,7 @@ test("OFFLINE: CLI exposes task commands while bare mutation dispatch remains un
       "overview",
       "doctor",
       "mcp",
-      "create|update|complete|move|drop|duplicate|delete",
+      "create|update|complete|move|reorder|drop|duplicate|delete",
       "batch",
       "review",
     ],

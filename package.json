@@ -1,6 +1,6 @@
 {
   "name": "nofuss-omnifocus",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "NoFuss for OmniFocus — bounded CLI and MCP reads with explicitly authorized safe writes",
   "type": "module",
   "private": true,
@@ -22,7 +22,12 @@
     "THIRD_PARTY_NOTICES.md",
     "RELEASE_NOTES.md",
     "docs/safe-writes.md",
-    "docs/inbox-parent-capture.md"
+    "docs/inbox-parent-capture.md",
+    "docs/calendar-recurrence.md",
+    "docs/task-hierarchy.md",
+    "docs/taxonomy-lifecycle.md",
+    "docs/perspectives.md",
+    "docs/task-batch.md"
   ],
   "scripts": {
     "build": "tsc && node scripts/build.mjs",

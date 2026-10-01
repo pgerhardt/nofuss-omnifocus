@@ -13,11 +13,7 @@ import {
   type MutationReader,
   type Readback,
 } from "./mutation-contract.js";
-import {
-  readWritePolicy,
-  type WriteScope,
-  type WritePolicy,
-} from "./write-authorization.js";
+import { readWritePolicy, type WritePolicy } from "./write-authorization.js";
 import type { NativeWorker } from "./worker.js";
 import type { NoFussCore } from "./core.js";
 const id = z.string().min(1).max(256);
@@ -132,10 +128,7 @@ export class ProjectWrites {
       );
     return r.facts;
   }
-  async execute(
-    scope: Extract<WriteScope, `project.${string}`>,
-    input: unknown,
-  ) {
+  async execute(scope: keyof typeof ProjectInputs, input: unknown) {
     const parsed = ProjectInputs[scope].safeParse(input);
     if (!parsed.success)
       throw new MutationError(

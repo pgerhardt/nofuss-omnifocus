@@ -1,39 +1,49 @@
-# NoFuss for OmniFocus — 0.1.0-beta.2
+# NoFuss for OmniFocus — 0.1.0-beta.3
 
-Post-capture parity checkpoint, distributed as a sanitized GitHub source prerelease.
-Build using the [README](README.md). `private:true` remains set; no npm publication.
+Broad practical parity checkpoint, distributed as a GitHub prerelease. Package
+remains `private:true`; there is no npm publication. This is bounded practical
+coverage, not complete OmniFocus API parity.
 
-## Included since beta.1
+## Coverage
 
-- Library task filters, tag/folder inventories and hierarchy.
-- Task due/defer/planned dates and estimates; exact project/parent/Inbox moves.
-- Project create/metadata/type/status/complete/drop/folder move; taxonomy create,
-  rename, parent move and supported tag status.
-- Ordinary leaf drop/duplicate/hard delete; calendar review intervals and mark-reviewed.
-- Typed daily/weekly anchored recurrence and absolute/due-relative notifications.
-- Whole-request homogeneous task create/update/move/ordinary-complete batches.
-- Perspective inventory/get, native custom archives and bounded selected-window reads.
-- Explicit direct Inbox creation, exact ordinary project/Inbox-parent creation and
-  scoped scalar/scheduling Inbox updates, including nested Inbox descendants.
+- Tasks: broad discovery and exact reads; Inbox/project/parent capture; scalar and
+  scheduling updates; tags; move/reparent/reorder; ordinary lifecycle and explicit
+  subtree duplicate/drop/complete/delete; verified bounded calendar recurrence and
+  repeating completion; absolute/due-relative alarms; homogeneous task batches.
+- Projects and taxonomy: project lifecycle including reorder/delete; folder/tag
+  hierarchy and lifecycle including reorder/delete, with explicit cascade and
+  surviving-association authorization/readback.
+- Review: review state, interval mutation and mark reviewed.
+- Perspectives: inventory/get, already-selected visible-window observations, and
+  bounded typed custom create/update/delete. No headless evaluation.
 
-Source review added a narrow guard against tentative containment on an Inbox update
-or on an ancestor of an exact parent. Both planning and native apply reject before
-setters. No extra product capability was added during review.
+## Safety
 
-## Safety and limitations
+Read-only/default-deny by default, with four MCP read tools. Writes require explicit
+host scope and object authorization, preview/apply intent and durable request keys.
+Whole-request validation and native precondition recheck precede setters;
+independent readback determines applied/partial/unknown outcomes. Unknown outcomes
+never blindly replay. No transaction, rollback or exactly-once guarantee is made.
 
-Default MCP catalog remains four read tools. Host authorization is fail-closed;
-Inbox permission defaults false and never authorizes a project. Generic write verbs
-share CLI/core/MCP semantics, durable keys, locks, preconditions and independent
-readback. Unknown identity stays unknown, with no automatic replay.
+Source review tightened outcome evidence and exact receipt identity, bounded
+subtree deletion readback, and corrected capability reporting. Final reviewed
+validation passed 327 repository tests and 56 write-safety tests.
+
+## Deferred scope and exclusions
+
+Deferred: floating/travel/custom/multiple-anchor advanced recurrence and history;
+richer/headless perspectives; attachments; locations; true sync-completion truth;
+import/export; plug-in effects; obscure history/counters/alarm edges. Repeating
+completion remains restricted to the verified single-anchor subset; supported
+weekly/monthly recurrence selectors do not imply custom-selector completion support.
+
+Intentional exclusions: arbitrary JXA/OmniJS, raw native script escape hatches,
+interacting/cross-entity arbitrary batches, and semantic-search/helper/template
+parity for its own sake.
 
 Requires macOS, Node.js 22+ and OmniFocus Automation access. Native evidence covers
-OmniFocus 4.9.2 (188.3), not universal versions/clients. Monthly/yearly/custom/inherited
-recurrence, repeating completion, subtree lifecycle, reorder, project hard delete,
-taxonomy destructive operations and perspective writes remain deferred. Perspective
-evaluation is visible-window observation. Attachments, locations, true sync completion,
-advanced floating/history/alarm states and import/export remain outside scope.
-
-See [safe writes](docs/safe-writes.md), [capture](docs/inbox-parent-capture.md),
-[read contract](docs/contract.md) and [local artifact discipline](docs/local-release.md).
-Prior alpha/beta tags and artifacts remain valid rollback points.
+OmniFocus 4.9.2 (188.3); it does not establish universal versions or clients.
+See [safe writes](docs/safe-writes.md), [recurrence](docs/calendar-recurrence.md),
+[hierarchy](docs/task-hierarchy.md), [taxonomy](docs/taxonomy-lifecycle.md),
+[perspectives](docs/perspectives.md) and [batches](docs/task-batch.md).
+Previous beta artifacts/tags remain rollback points.

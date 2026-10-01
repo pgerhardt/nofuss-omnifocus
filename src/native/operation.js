@@ -92,7 +92,71 @@ function operation(envelope) {
     var r = t.repetitionRule;
     if (r === null) return null;
     if (r === undefined) fail("NATIVE_UNAVAILABLE", "Recurrence unavailable");
-    var m = /^FREQ=(DAILY|WEEKLY);INTERVAL=([1-9][0-9]*)$/.exec(r.ruleString);
+    var parts = {},
+      valid = true;
+    r.ruleString.split(";").forEach(function (part) {
+      var pair = part.split("=");
+      if (pair.length !== 2 || pair[0] in parts) valid = false;
+      parts[pair[0]] = pair[1];
+    });
+    var frequency = {
+      DAILY: "daily",
+      WEEKLY: "weekly",
+      MONTHLY: "monthly",
+      YEARLY: "yearly",
+    }[parts.FREQ];
+    var interval = parts.INTERVAL === undefined ? 1 : Number(parts.INTERVAL);
+    var selectors = {},
+      days = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+    if (
+      Object.keys(parts).some(
+        (k) => !["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY"].includes(k),
+      )
+    )
+      valid = false;
+    function numbers(key, min, max) {
+      var value = parts[key].split(",");
+      if (
+        value.some(
+          (x) =>
+            !/^-?[1-9][0-9]*$/.test(x) || Number(x) < min || Number(x) > max,
+        ) ||
+        new Set(value).size !== value.length
+      )
+        valid = false;
+      return value.map(Number).sort((a, b) => a - b);
+    }
+    if (parts.BYMONTHDAY !== undefined) {
+      if (frequency !== "monthly") valid = false;
+      selectors.month_days = numbers("BYMONTHDAY", -31, 31);
+    }
+    if (parts.BYDAY !== undefined) {
+      if (frequency === "weekly") {
+        var value = parts.BYDAY.split(",");
+        if (
+          value.some((x) => !days.includes(x)) ||
+          new Set(value).size !== value.length
+        )
+          valid = false;
+        selectors.weekdays = value.sort(
+          (a, b) => days.indexOf(a) - days.indexOf(b),
+        );
+      } else {
+        var ordinal = /^(-?[1-5])(MO|TU|WE|TH|FR|SA|SU)$/.exec(parts.BYDAY);
+        if (
+          !ordinal ||
+          frequency !== "monthly" ||
+          parts.BYMONTHDAY !== undefined
+        )
+          valid = false;
+        else
+          selectors.ordinal_weekday = {
+            ordinal: Number(ordinal[1]),
+            weekday: ordinal[2],
+          };
+      }
+    }
+    if (selectors.month_days && selectors.month_days.length > 31) valid = false;
     var schedule =
       r.scheduleType === Task.RepetitionScheduleType.Regularly
         ? "regularly"
@@ -106,8 +170,12 @@ function operation(envelope) {
           ? "defer"
           : null;
     if (
-      !m ||
-      Number(m[2]) > 1000 ||
+      !valid ||
+      !frequency ||
+      !Number.isSafeInteger(interval) ||
+      interval < 1 ||
+      interval > 1000 ||
+      (parts.INTERVAL !== undefined && !/^[1-9][0-9]*$/.test(parts.INTERVAL)) ||
       !schedule ||
       !anchor ||
       typeof r.catchUpAutomatically !== "boolean" ||
@@ -118,8 +186,9 @@ function operation(envelope) {
         "Recurrence outside verified representation",
       );
     return {
-      frequency: m[1].toLowerCase(),
-      interval: Number(m[2]),
+      frequency: frequency,
+      interval: interval,
+      ...selectors,
       schedule: schedule,
       anchor: anchor,
       catch_up: r.catchUpAutomatically,

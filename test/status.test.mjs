@@ -202,3 +202,40 @@ test("ordinary gets do not export declarations or require introspection", async 
   await getStatus(r);
   assert.equal(reads, 1);
 });
+
+test("REVIEW REGRESSION: status reports typed perspective rule writes only for applicable host authority", async (t) => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { NoFussCore } = await import("../dist/core.js");
+  const dir = await mkdtemp(join(tmpdir(), "nfo-review-status-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const core = new NoFussCore(reader(), build, dir);
+  assert.equal(
+    (await core.status()).capabilities.perspective_rule_writes,
+    false,
+  );
+  for (const policy of [
+    {
+      scopes: ["perspective.update"],
+      perspective_ids: ["exact-custom"],
+      expected: true,
+    },
+    {
+      scopes: ["perspective.create"],
+      allow_perspective_creation: true,
+      expected: true,
+    },
+    { scopes: ["project.update"], project_ids: ["project"], expected: false },
+  ]) {
+    const { expected, ...authorization } = policy;
+    await writeFile(
+      join(dir, "mutation-authorization.json"),
+      JSON.stringify({ schema_version: 1, project_ids: [], ...authorization }),
+      { mode: 0o600 },
+    );
+    const status = await core.status();
+    assert.equal(status.capabilities.writes, true);
+    assert.equal(status.capabilities.perspective_rule_writes, expected);
+  }
+});

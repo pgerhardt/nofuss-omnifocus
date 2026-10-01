@@ -483,18 +483,67 @@ const truncated = z
       .strict(),
   )
   .meta({ id: "FieldTruncation" });
+const Weekday = z.enum(["MO", "TU", "WE", "TH", "FR", "SA", "SU"]);
+const unique = (v: unknown[]) => new Set(v).size === v.length;
 export const Recurrence = z
   .object({
-    frequency: z.enum(["daily", "weekly"]),
+    frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
     interval: z.number().int().min(1).max(1000),
     schedule: z.enum(["regularly", "from_completion"]),
     anchor: z.enum(["due", "defer"]),
     catch_up: z.boolean(),
+    weekdays: z
+      .array(Weekday)
+      .min(1)
+      .max(7)
+      .refine(unique)
+      .overwrite((v) =>
+        v.sort(
+          (a, b) => Weekday.options.indexOf(a) - Weekday.options.indexOf(b),
+        ),
+      )
+      .optional(),
+    month_days: z
+      .array(
+        z
+          .number()
+          .int()
+          .min(-31)
+          .max(31)
+          .refine((v) => v !== 0),
+      )
+      .min(1)
+      .max(31)
+      .refine(unique)
+      .overwrite((v) => v.sort((a, b) => a - b))
+      .optional(),
+    ordinal_weekday: z
+      .object({
+        ordinal: z
+          .number()
+          .int()
+          .min(-5)
+          .max(5)
+          .refine((v) => v !== 0),
+        weekday: Weekday,
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine(
     (v) => v.schedule === "regularly" || !v.catch_up,
     "Catch-up is only verified for regular schedules.",
+  )
+  .refine(
+    (v) =>
+      !(v.month_days && v.ordinal_weekday) &&
+      (v.frequency === "weekly"
+        ? !(v.month_days || v.ordinal_weekday)
+        : v.frequency === "monthly"
+          ? !v.weekdays
+          : !(v.weekdays || v.month_days || v.ordinal_weekday)),
+    "Calendar selectors must match frequency; day-of-month and ordinal-weekday selectors are exclusive.",
   );
 export const NotificationWrite = z.discriminatedUnion("kind", [
   z

@@ -14,15 +14,40 @@ function run(argv) {
   }
   var source = ObjC.unwrap(
     $.NSString.stringWithContentsOfFileEncodingError(
-      ["task_write_facts", "task_write_apply"].includes(envelope.op)
-        ? argv[0].replace(/operation\.js$/, "task-operation.js")
-        : ["project_write_facts", "project_write_apply"].includes(envelope.op)
-          ? argv[0].replace(/operation\.js$/, "project-operation.js")
-          : ["taxonomy_write_facts", "taxonomy_write_apply"].includes(
-                envelope.op,
-              )
-            ? argv[0].replace(/operation\.js$/, "taxonomy-operation.js")
-            : argv[0],
+      [
+        "perspective_write_facts",
+        "perspective_write_validate",
+        "perspective_write_apply",
+      ].includes(envelope.op)
+        ? argv[0].replace(/operation\.js$/, "perspective-operation.js")
+        : [
+              "container_lifecycle_facts",
+              "container_lifecycle_apply",
+              "container_lifecycle_absence",
+              "container_lifecycle_order",
+            ].includes(envelope.op)
+          ? argv[0].replace(
+              /operation\.js$/,
+              "container-lifecycle-operation.js",
+            )
+          : [
+                "task_hierarchy_facts",
+                "task_hierarchy_apply",
+                "task_hierarchy_absence",
+                "task_hierarchy_order",
+              ].includes(envelope.op)
+            ? argv[0].replace(/operation\.js$/, "task-hierarchy-operation.js")
+            : ["task_write_facts", "task_write_apply"].includes(envelope.op)
+              ? argv[0].replace(/operation\.js$/, "task-operation.js")
+              : ["project_write_facts", "project_write_apply"].includes(
+                    envelope.op,
+                  )
+                ? argv[0].replace(/operation\.js$/, "project-operation.js")
+                : ["taxonomy_write_facts", "taxonomy_write_apply"].includes(
+                      envelope.op,
+                    )
+                  ? argv[0].replace(/operation\.js$/, "taxonomy-operation.js")
+                  : argv[0],
       $.NSUTF8StringEncoding,
       null,
     ),
@@ -35,6 +60,57 @@ function run(argv) {
     return of.evaluateJavascript(
       "(" + source + ")(JSON.parse(" + literal + "))",
     );
+  }
+  if (
+    envelope.op === "perspective_write_apply" &&
+    envelope.args.request.operation.kind === "perspective.create"
+  ) {
+    var checked = JSON.parse(
+      evaluate({
+        request_id: envelope.request_id,
+        op: "perspective_write_validate",
+        args: envelope.args,
+      }),
+    );
+    if (checked.error)
+      return JSON.stringify({
+        request_id: envelope.request_id,
+        result: {
+          request_key: envelope.args.request.request_key,
+          input_hash: envelope.args.input_hash,
+          finished: true,
+          setter_count: 0,
+          perspective_id: null,
+          rolled_back: false,
+          error: checked.error,
+        },
+      });
+    try {
+      var created = of.defaultDocument.make({
+        new: "perspective",
+        withProperties: { name: envelope.args.request.items[0].changes.name },
+      });
+      envelope.args.created_id = created.id();
+    } catch (_) {
+      // Constructor dispatch may have started; no guessed identity or automatic replay.
+      return JSON.stringify({
+        request_id: envelope.request_id,
+        result: {
+          request_key: envelope.args.request.request_key,
+          input_hash: envelope.args.input_hash,
+          finished: true,
+          setter_count: 1,
+          perspective_id: null,
+          rolled_back: false,
+          error: {
+            code: "NATIVE_CREATE_UNCERTAIN",
+            message:
+              "Constructor outcome/identity unknown; independently reconcile",
+          },
+        },
+      });
+    }
+    return evaluate(envelope);
   }
   // Exact review records require the scripting fixed flag omitted by OmniJS.
   // No user script is evaluated; source above is the shipped project operation.

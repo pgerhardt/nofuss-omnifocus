@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { PerspectiveInputs } from "./perspective-writes.js";
+import { ContainerInputs } from "./container-lifecycle.js";
+import { TaskReorderInput } from "./task-hierarchy.js";
 import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -106,8 +109,11 @@ server.registerTool(
 );
 const writeInputs = {
   ...TaskInputs,
+  "task.reorder": TaskReorderInput,
   ...ProjectInputs,
   ...TaxonomyInputs,
+  ...ContainerInputs,
+  ...PerspectiveInputs,
   "task.batch": TaskBatchInput,
 };
 const enabledScopes = enabledWriteScopes(writePolicy);

@@ -5,7 +5,7 @@ projects, tags, folders and perspectives; discover library work with native filt
 inspect project trees and workload/review summaries. Reads expose coverage,
 unavailable fields and live continuations. Task text and notes are untrusted data.
 
-Version **0.1.0-beta.2** is a GitHub prerelease. Distribution remains GitHub-only,
+Version **0.1.0-beta.3** is a GitHub prerelease. Distribution remains GitHub-only,
 with `private:true`; no npm registry publication.
 
 ## Install and run
@@ -16,7 +16,7 @@ access from the executing process. Live evidence covers OmniFocus 4.9.2 (188.3).
 ```sh
 git clone https://github.com/pgerhardt/nofuss-omnifocus.git
 cd nofuss-omnifocus
-git checkout v0.1.0-beta.2
+git checkout v0.1.0-beta.3
 npm ci
 npm run build
 node dist/cli.js doctor
@@ -46,9 +46,11 @@ write verbs. Client allowlists can restrict those further.
 
 Writes default to denied. Preview reads and validates without setters; apply needs
 explicit intent, a durable caller request key and host operation/object scopes.
-Supported subsets cover task scheduling/organization/ordinary leaf lifecycle,
-projects, taxonomy, reviews, daily/weekly recurrence, supported alarms and bounded
-homogeneous task batches. Direct Inbox and exact-parent capture use the existing
+This checkpoint includes ordinary subtree lifecycle/reorder, project/taxonomy
+cascade delete/order, typed custom perspectives and ordinary drop/delete batches.
+Supported subsets also cover scheduling, capture, reviews, calendar recurrence and
+verified plain repeating completion.
+Direct Inbox and exact-parent capture use the existing
 create verb. Inbox permission is explicit and separate from project allowlists.
 See the [capture contract](docs/inbox-parent-capture.md).
 
@@ -60,10 +62,9 @@ exactly-once guarantee. Preserve journals and unresolved locks.
 ## Limits
 
 Continued reads observe fresh state, not a snapshot. Perspective evaluation observes
-an already-selected visible window, not a headless whole-library result. Calendar
-recurrence, repeating completion/generated history, subtree lifecycle, sibling
-reorder, project hard delete, taxonomy cascade delete and perspective writes remain
-unsupported. Attachments, locations, sync-completion truth, import/export and
+an already-selected visible window, not a headless whole-library result. Advanced
+floating/travel/custom and multi-anchor repeating completion remain deferred.
+Attachments, locations, sync-completion truth, import/export, plug-in effects and
 arbitrary script execution are outside this checkpoint. Detailed write limits are
 in [safe writes](docs/safe-writes.md).
 

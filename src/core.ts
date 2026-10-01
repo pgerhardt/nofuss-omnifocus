@@ -1,3 +1,6 @@
+import { PerspectiveWrites, PerspectiveInputs } from "./perspective-writes.js";
+import { ContainerLifecycle, ContainerInputs } from "./container-lifecycle.js";
+import { TaskHierarchy } from "./task-hierarchy.js";
 import { z } from "zod";
 import { TaxonomyWrites } from "./taxonomy-writes.js";
 import { ProjectWrites } from "./project-writes.js";
@@ -153,6 +156,36 @@ export class NoFussCore {
     }
   }
   async mutate(scope: WriteScope, input: unknown) {
+    if (scope in PerspectiveInputs)
+      return new PerspectiveWrites(
+        this.worker,
+        this,
+        this.writeStateDirectory,
+      ).execute(scope as keyof typeof PerspectiveInputs, input);
+    if (scope in ContainerInputs)
+      return new ContainerLifecycle(
+        this.worker,
+        this,
+        this.writeStateDirectory,
+      ).execute(scope as keyof typeof ContainerInputs, input);
+    if (
+      scope === "task.reorder" ||
+      (input &&
+        typeof input === "object" &&
+        "subtree" in input &&
+        input.subtree === true &&
+        [
+          "task.duplicate",
+          "task.delete",
+          "task.drop",
+          "task.complete",
+        ].includes(scope))
+    )
+      return new TaskHierarchy(
+        this.worker,
+        this,
+        this.writeStateDirectory,
+      ).execute(scope, input);
     if (scope === "task.batch")
       return new TaskBatch(this.worker, this, this.writeStateDirectory).execute(
         input,
@@ -163,7 +196,7 @@ export class NoFussCore {
         this,
         this.writeStateDirectory,
       ).execute(
-        scope as Extract<WriteScope, `tag.${string}` | `folder.${string}`>,
+        scope as keyof typeof import("./taxonomy-writes.js").TaxonomyInputs,
         input,
       );
     if (scope.startsWith("project."))
@@ -171,7 +204,10 @@ export class NoFussCore {
         this.worker,
         this,
         this.writeStateDirectory,
-      ).execute(scope as Extract<WriteScope, `project.${string}`>, input);
+      ).execute(
+        scope as keyof typeof import("./project-writes.js").ProjectInputs,
+        input,
+      );
     return new TaskWrites(this.worker, this, this.writeStateDirectory).execute(
       scope as keyof typeof import("./task-writes.js").TaskInputs,
       input,
@@ -618,15 +654,19 @@ export class NoFussCore {
         error: errorInfo(error),
       };
     }
+    const enabledScopes = enabledWriteScopes(
+      await readWritePolicy(this.writeStateDirectory),
+    );
     return {
       build: this.build,
       native,
       worker: this.worker.snapshot(),
       capabilities: {
         ...CAPABILITIES,
-        writes: await readWritePolicy(this.writeStateDirectory).then(
-          (p) => enabledWriteScopes(p).length > 0,
-        ),
+        writes: enabledScopes.length > 0,
+        perspective_rule_writes:
+          enabledScopes.includes("perspective.create") ||
+          enabledScopes.includes("perspective.update"),
       },
       verification: {
         ...READ_VERIFICATION,

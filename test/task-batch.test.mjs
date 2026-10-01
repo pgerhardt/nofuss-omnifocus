@@ -13,6 +13,8 @@ async function setup(
     "task.update",
     "task.move",
     "task.complete",
+    "task.drop",
+    "task.delete",
   ],
 ) {
   const native = taskFixture(),
@@ -238,4 +240,81 @@ test("NATIVE-ALGORITHM DOUBLE: one incomplete independent read retains other ite
   const count = native.events.length;
   await core.mutate("task.batch", args);
   assert.equal(native.events.length, count);
+});
+
+test("NATIVE-ALGORITHM DOUBLE: ordinary drop/delete batches retain scalar proofs, one dispatch and durable replay", async (t) => {
+  for (const action of ["drop", "delete"]) {
+    const f = await setup(t);
+    let count = 0;
+    f.native.beforeApply = () => count++;
+    const input = {
+      action,
+      items: [
+        { item_key: "first", task_id: "task" },
+        { item_key: "second", task_id: "second" },
+      ],
+      apply: true,
+      request_key: action,
+    };
+    const r = await f.core.mutate("task.batch", input);
+    assert.ok(
+      r.items.every((i) => i.outcome === "applied"),
+      JSON.stringify(r),
+    );
+    assert.equal(count, 1);
+    if (action === "delete")
+      assert.equal(f.native.tasks.includes(f.second), false);
+    else assert.ok(f.second.dropDate);
+    assert.deepEqual(await f.core.mutate("task.batch", input), r);
+    assert.equal(count, 1);
+  }
+});
+test("NATIVE-ALGORITHM DOUBLE: destructive final-item race rejects entire request and missing destructive scope prevents all setters", async (t) => {
+  for (const action of ["drop", "delete"]) {
+    const f = await setup(t);
+    f.native.beforeApply = () => {
+      f.second.repetitionRule = { ruleString: "FREQ=DAILY", method: {} };
+    };
+    const input = {
+      action,
+      items: [
+        { item_key: "first", task_id: "task" },
+        { item_key: "second", task_id: "second" },
+      ],
+      apply: true,
+      request_key: action,
+    };
+    const r = await f.core.mutate("task.batch", input);
+    assert.ok(
+      r.items.every(
+        (i) => i.outcome === "conflict" || i.outcome === "rejected",
+      ),
+    );
+    assert.equal(f.native.events.length, 0);
+    const denied = await setup(t, ["task.batch", "task.update"]);
+    const rejected = await denied.core.mutate("task.batch", input);
+    assert.notEqual(rejected.items?.[0]?.outcome, "applied");
+    assert.equal(denied.native.events.length, 0);
+  }
+});
+test("NATIVE-ALGORITHM DOUBLE: destructive batch response loss never redispatches and stable item keys persist", async (t) => {
+  for (const action of ["drop", "delete"]) {
+    const f = await setup(t);
+    f.native.loseResponse = true;
+    const input = {
+      action,
+      items: [
+        { item_key: "first", task_id: "task" },
+        { item_key: "second", task_id: "second" },
+      ],
+      apply: true,
+      request_key: action,
+    };
+    const r = await f.core.mutate("task.batch", input);
+    assert.ok(r.items.every((i) => i.outcome === "unknown"));
+    const n = f.native.events.length;
+    const again = await f.core.mutate("task.batch", input);
+    assert.ok(again.items.every((i) => i.outcome === "unknown"));
+    assert.equal(f.native.events.length, n);
+  }
 });

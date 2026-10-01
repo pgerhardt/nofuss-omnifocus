@@ -15,6 +15,8 @@ export const READ_VERIFICATION = {
     "library_discovery_and_exact_taxonomy_hierarchy",
     "task_scheduling_including_planned_millisecond_dates",
     "bounded_recurrence_and_absolute_due_relative_alarms",
+    "from_completion_plain_single_anchor_native_clock_and_dst",
+    "bounded_ordinary_subtree_lifecycle_and_exact_sibling_reorder",
     "perspective_inventory_archives_and_selected_visible_window",
   ],
   gaps: [
@@ -29,6 +31,8 @@ export const READ_VERIFICATION = {
     native_collections: "array_like_not_necessarily_Array",
     available_child_count: "gated_unresolved_semantics",
     defer_relative_notifications: "unsupported",
+    from_completion_completion:
+      "plain non-floating single local due/defer intervals only; custom selectors, floating/travel, dual/inherited/planned anchors remain unsupported",
     notification_relative_offsets:
       "declarations say minutes; raw seconds divided by 60 without version gating; live-confirmed on 4.9.2 (188.3), affected version range unknown",
   },

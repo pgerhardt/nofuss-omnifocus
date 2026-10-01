@@ -48,7 +48,71 @@ function taskOperation(envelope) {
     var r = t.repetitionRule;
     if (r === null) return null;
     if (r === undefined) throw Error("Recurrence unavailable");
-    var m = /^FREQ=(DAILY|WEEKLY);INTERVAL=([1-9][0-9]*)$/.exec(r.ruleString);
+    var parts = {},
+      valid = true;
+    r.ruleString.split(";").forEach(function (part) {
+      var pair = part.split("=");
+      if (pair.length !== 2 || pair[0] in parts) valid = false;
+      parts[pair[0]] = pair[1];
+    });
+    var frequency = {
+      DAILY: "daily",
+      WEEKLY: "weekly",
+      MONTHLY: "monthly",
+      YEARLY: "yearly",
+    }[parts.FREQ];
+    var interval = parts.INTERVAL === undefined ? 1 : Number(parts.INTERVAL);
+    var selectors = {},
+      days = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+    if (
+      Object.keys(parts).some(
+        (k) => !["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY"].includes(k),
+      )
+    )
+      valid = false;
+    function numbers(key, min, max) {
+      var value = parts[key].split(",");
+      if (
+        value.some(
+          (x) =>
+            !/^-?[1-9][0-9]*$/.test(x) || Number(x) < min || Number(x) > max,
+        ) ||
+        new Set(value).size !== value.length
+      )
+        valid = false;
+      return value.map(Number).sort((a, b) => a - b);
+    }
+    if (parts.BYMONTHDAY !== undefined) {
+      if (frequency !== "monthly") valid = false;
+      selectors.month_days = numbers("BYMONTHDAY", -31, 31);
+    }
+    if (parts.BYDAY !== undefined) {
+      if (frequency === "weekly") {
+        var value = parts.BYDAY.split(",");
+        if (
+          value.some((x) => !days.includes(x)) ||
+          new Set(value).size !== value.length
+        )
+          valid = false;
+        selectors.weekdays = value.sort(
+          (a, b) => days.indexOf(a) - days.indexOf(b),
+        );
+      } else {
+        var ordinal = /^(-?[1-5])(MO|TU|WE|TH|FR|SA|SU)$/.exec(parts.BYDAY);
+        if (
+          !ordinal ||
+          frequency !== "monthly" ||
+          parts.BYMONTHDAY !== undefined
+        )
+          valid = false;
+        else
+          selectors.ordinal_weekday = {
+            ordinal: Number(ordinal[1]),
+            weekday: ordinal[2],
+          };
+      }
+    }
+    if (selectors.month_days && selectors.month_days.length > 31) valid = false;
     var schedule =
       r.scheduleType === Task.RepetitionScheduleType.Regularly
         ? "regularly"
@@ -62,8 +126,12 @@ function taskOperation(envelope) {
           ? "defer"
           : null;
     if (
-      !m ||
-      Number(m[2]) > 1000 ||
+      !valid ||
+      !frequency ||
+      !Number.isSafeInteger(interval) ||
+      interval < 1 ||
+      interval > 1000 ||
+      (parts.INTERVAL !== undefined && !/^[1-9][0-9]*$/.test(parts.INTERVAL)) ||
       !schedule ||
       !anchor ||
       typeof r.catchUpAutomatically !== "boolean" ||
@@ -71,12 +139,44 @@ function taskOperation(envelope) {
     )
       throw Error("Recurrence outside verified representation");
     return {
-      frequency: m[1].toLowerCase(),
-      interval: Number(m[2]),
+      frequency: frequency,
+      interval: interval,
+      ...selectors,
       schedule: schedule,
       anchor: anchor,
       catch_up: r.catchUpAutomatically,
     };
+  }
+  function nextOccurrence(t, typed, completion) {
+    var r = t.repetitionRule;
+    if (
+      !typed ||
+      typed.unsupported ||
+      typed.catch_up ||
+      typeof r?.firstDateAfterDate !== "function"
+    )
+      return null;
+    var anchor = typed.anchor === "due" ? t.dueDate : t.deferDate;
+    if (anchor === null) return null;
+    if (typed.schedule === "regularly")
+      return date(r.firstDateAfterDate(anchor));
+    // Native evidence: normalize the old clock ON the completion day before advancing.
+    // In particular, a spring DST gap on that day changes the clock before the interval.
+    if (
+      t.shouldUseFloatingTimeZone ||
+      typed.weekdays ||
+      typed.month_days ||
+      typed.ordinal_weekday
+    )
+      return null;
+    var base = new Date(completion);
+    base.setHours(
+      anchor.getHours(),
+      anchor.getMinutes(),
+      anchor.getSeconds(),
+      anchor.getMilliseconds(),
+    );
+    return date(r.firstDateAfterDate(base));
   }
   function extendedFacts(t) {
     var r = t.repetitionRule;
@@ -86,7 +186,9 @@ function taskOperation(envelope) {
     } catch (_) {
       typed = { unsupported: true };
     }
+    var next = nextOccurrence(t, typed, t.completionDate || new Date());
     return {
+      next_occurrence_at: next,
       recurrence: typed,
       recurrence_raw:
         r === null
@@ -338,9 +440,20 @@ function taskOperation(envelope) {
       if (
         r !== null &&
         (!r ||
-          Object.keys(r).sort().join(",") !==
-            "anchor,catch_up,frequency,interval,schedule" ||
-          !["daily", "weekly"].includes(r.frequency) ||
+          Object.keys(r).some(
+            (k) =>
+              ![
+                "anchor",
+                "catch_up",
+                "frequency",
+                "interval",
+                "schedule",
+                "weekdays",
+                "month_days",
+                "ordinal_weekday",
+              ].includes(k),
+          ) ||
+          !["daily", "weekly", "monthly", "yearly"].includes(r.frequency) ||
           !Number.isSafeInteger(r.interval) ||
           r.interval < 1 ||
           r.interval > 1000 ||
@@ -354,7 +467,17 @@ function taskOperation(envelope) {
         r === null
           ? null
           : new Task.RepetitionRule(
-              "FREQ=" + r.frequency.toUpperCase() + ";INTERVAL=" + r.interval,
+              "FREQ=" +
+                r.frequency.toUpperCase() +
+                ";INTERVAL=" +
+                r.interval +
+                (r.weekdays ? ";BYDAY=" + r.weekdays.join(",") : "") +
+                (r.ordinal_weekday
+                  ? ";BYDAY=" +
+                    r.ordinal_weekday.ordinal +
+                    r.ordinal_weekday.weekday
+                  : "") +
+                (r.month_days ? ";BYMONTHDAY=" + r.month_days.join(",") : ""),
               null,
               r.schedule === "regularly"
                 ? Task.RepetitionScheduleType.Regularly
@@ -364,6 +487,14 @@ function taskOperation(envelope) {
                 : Task.AnchorDateKey.DeferDate,
               r.catch_up,
             );
+      if (
+        r !== null &&
+        canonical(recurrence({ repetitionRule: compiledRule })) !== canonical(r)
+      )
+        fail(
+          "INVALID_MUTATION",
+          "Native recurrence normalization disagrees before setters",
+        );
     }
     if ("notifications" in changes) {
       if (
@@ -649,7 +780,39 @@ function taskOperation(envelope) {
     }
     if (kind === "task.complete") {
       var tf = facts(item.targets[0]);
-      if (tf.repeating || tf.ancestor_repeating)
+      var occurrence = item.payload?.occurrence === "current";
+      if (occurrence) {
+        if (envelope.args.authorized_repeating_completion !== true)
+          fail("WRITE_NOT_AUTHORIZED", "Repeating completion not authorized");
+        var rule = tf.recurrence;
+        if (
+          !envelope.args.extended ||
+          !tf.repeating ||
+          !rule ||
+          rule.unsupported ||
+          !["regularly", "from_completion"].includes(rule.schedule) ||
+          rule.catch_up ||
+          tf.ancestor_repeating ||
+          tf.ancestor_auto_complete ||
+          tf.ancestor_tentative ||
+          tf.assigned_container_id !== null ||
+          tf.attachment_count !== 0 ||
+          tf.notifications.length ||
+          tf.planned_supported !== true ||
+          tf.planned_at !== null ||
+          tf.floating ||
+          (rule.anchor === "due" ? tf.defer_at !== null : tf.due_at !== null) ||
+          typeof tf.next_occurrence_at !== "string" ||
+          !Number.isFinite(Date.parse(tf.next_occurrence_at)) ||
+          (rule.schedule === "regularly" &&
+            Date.parse(rule.anchor === "due" ? tf.due_at : tf.defer_at) <=
+              Date.now())
+        )
+          fail(
+            "REPEATING_COMPLETION_UNSUPPORTED",
+            "Unsupported repeating occurrence state",
+          );
+      } else if (tf.repeating || tf.ancestor_repeating)
         fail(
           "REPEATING_COMPLETION_UNSUPPORTED",
           "Repeating completion is unsupported.",
@@ -691,6 +854,10 @@ function taskOperation(envelope) {
         fail("PRECONDITION_CONFLICT", "Native pre-setter fact mismatch.");
     });
     return {
+      expectedNextOccurrence:
+        kind === "task.complete" && item.payload?.occurrence === "current"
+          ? tf.next_occurrence_at
+          : null,
       createPosition: createPosition,
       compiledRule: compiledRule,
       target: target,
@@ -726,8 +893,24 @@ function taskOperation(envelope) {
         fail("INVALID_MUTATION", "Unexpected duplicate identities");
       receipt.task_id = id(copies[0]);
     } else if (request.operation.kind === "task.complete") {
+      var completion = new Date();
+      if (item.payload?.occurrence === "current") {
+        var expected = ready.expectedNextOccurrence;
+        if (nextOccurrence(t, recurrence(t), completion) !== expected)
+          fail(
+            "PRECONDITION_CONFLICT",
+            "Completion calendar changed before dispatch",
+          );
+      }
       receipt.setter_count++;
-      t.markComplete();
+      var completed =
+        item.payload?.occurrence === "current"
+          ? t.markComplete(completion)
+          : t.markComplete();
+      if (item.payload?.occurrence === "current") {
+        receipt.source_task_id = id(t);
+        receipt.task_id = id(completed);
+      }
     } else {
       if ("name" in changes && request.operation.kind !== "task.create") {
         receipt.setter_count++;
@@ -834,6 +1017,8 @@ function taskOperation(envelope) {
             "task.update",
             "task.move",
             "task.complete",
+            "task.drop",
+            "task.delete",
           ].includes(r.operation.kind) ||
           !(a.authorized_scopes || []).includes(r.operation.kind) ||
           Object.keys(r.items[0].changes).some((k) =>

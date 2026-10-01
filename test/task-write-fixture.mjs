@@ -1,7 +1,7 @@
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { ReadError } from "../dist/contract.js";
-export function taskFixture() {
+export function taskFixture(dateClass = Date) {
   const events = [],
     tasks = [],
     tags = [],
@@ -65,6 +65,7 @@ export function taskFixture() {
     get effectiveActive() {
       return (
         this.active &&
+        (!this.parent || this.parent.effectiveActive) &&
         (!this.containingProject || this.containingProject.status === "Active")
       );
     }
@@ -96,10 +97,12 @@ export function taskFixture() {
       return this.completed ? statuses.Completed : statuses.Available;
     }
     get effectiveCompletionDate() {
-      return this.completionDate;
+      return (
+        this.completionDate ?? this.parent?.effectiveCompletionDate ?? null
+      );
     }
     get effectiveDropDate() {
-      return this.dropDate;
+      return this.dropDate ?? this.parent?.effectiveDropDate ?? null;
     }
     get effectiveDueDate() {
       return this.dueDate ?? this.parent?.effectiveDueDate ?? null;
@@ -146,8 +149,19 @@ export function taskFixture() {
       this.active = false;
       this.dropDate = new Date();
     }
+    get before() {
+      return {
+        owner: this.parent,
+        project: this.containingProject,
+        before: this,
+      };
+    }
     get after() {
-      return { owner: this.parent, project: this.containingProject };
+      return {
+        owner: this.parent,
+        project: this.containingProject,
+        after: this,
+      };
     }
     markComplete() {
       events.push("complete");
@@ -214,7 +228,7 @@ export function taskFixture() {
     Tag: {
       byIdentifier: (id) => tags.find((t) => t.id.primaryKey === id) ?? null,
     },
-    Date,
+    Date: dateClass,
     inbox: Object.assign([], { ending: { owner: null } }),
     flattenedProjects: projects,
     moveTasks: (moving, position) => {
@@ -235,15 +249,22 @@ export function taskFixture() {
           for (const c of t.tasks) propagate(c);
         }
         propagate(t);
-        if (position.owner) position.owner.tasks.push(t);
-        if (position.owner?.project) project.tasks.push(t);
+        if (position.owner) {
+          const siblings = position.owner.tasks;
+          const peer = position.before || position.after;
+          const index = peer
+            ? siblings.indexOf(peer) + (position.after ? 1 : 0)
+            : siblings.length;
+          siblings.splice(index, 0, t);
+        }
+        if (position.owner?.project && project.tasks !== position.owner.tasks)
+          project.tasks.push(t);
       }
     },
     duplicateTasks: (values, position) => {
       events.push("duplicate");
-      return values.map((original) => {
-        const t = new Task(original.name, original.containingProject);
-        t.parent = original.parent;
+      function copy(original, parent) {
+        const t = new Task(original.name, parent);
         t.noteText = { ...original.noteText };
         t._flagged = original.flagged;
         t.tags = [...original.tags];
@@ -257,14 +278,32 @@ export function taskFixture() {
           "shouldUseFloatingTimeZone",
         ])
           t[field] = original[field];
+        original.tasks.forEach((c) => copy(c, t));
+        return t;
+      }
+      return values.map((original) => {
+        const t = copy(
+          original,
+          original.parent?.project ?? original.parent ?? null,
+        );
+        const peers = t.parent?.tasks;
+        if (peers && (position.before || position.after)) {
+          peers.splice(peers.indexOf(t), 1);
+          const peer = position.before || position.after;
+          peers.splice(peers.indexOf(peer) + (position.after ? 1 : 0), 0, t);
+        }
         return t;
       });
     },
     deleteObject: (t) => {
       events.push("delete");
-      tasks.splice(tasks.indexOf(t), 1);
-      for (const siblings of [t.parent?.tasks, t.containingProject?.tasks])
-        if (siblings?.includes(t)) siblings.splice(siblings.indexOf(t), 1);
+      function erase(x) {
+        for (const c of [...x.tasks]) erase(c);
+        tasks.splice(tasks.indexOf(x), 1);
+        for (const siblings of [x.parent?.tasks, x.containingProject?.tasks])
+          if (siblings?.includes(x)) siblings.splice(siblings.indexOf(x), 1);
+      }
+      erase(t);
     },
     app: {
       getTypeScriptDeclarations: () =>
@@ -276,6 +315,15 @@ export function taskFixture() {
     "(" +
       readFileSync(
         new URL("../src/native/task-operation.js", import.meta.url),
+        "utf8",
+      ) +
+      ")",
+    context,
+  );
+  const hierarchy = vm.runInContext(
+    "(" +
+      readFileSync(
+        new URL("../src/native/task-hierarchy-operation.js", import.meta.url),
         "utf8",
       ) +
       ")",
@@ -302,13 +350,18 @@ export function taskFixture() {
     readbackFails: false,
     readCalls: 0,
     run: async (op, args) => {
-      if (op === "task_write_apply") fixture.beforeApply?.();
+      if (["task_write_apply", "task_hierarchy_apply"].includes(op))
+        fixture.beforeApply?.();
       if (op === "get") {
         fixture.readCalls++;
         if (fixture.readbackFails) throw Error("readback unavailable");
       }
       const result = JSON.parse(
-        (op.startsWith("task_write_") ? native : read)({
+        (op.startsWith("task_hierarchy_")
+          ? hierarchy
+          : op.startsWith("task_write_")
+            ? native
+            : read)({
           request_id: "double",
           op,
           args,

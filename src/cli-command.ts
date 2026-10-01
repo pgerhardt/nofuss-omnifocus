@@ -13,7 +13,7 @@ export const HELP = {
     "overview [--waiting-tag-ids ID,ID]",
     "doctor",
     "mcp",
-    "create|update|complete|move|drop|duplicate|delete task|project|tag|folder --input FILE|- [--apply --request-key KEY]",
+    "create|update|complete|move|reorder|drop|duplicate|delete task|project|tag|folder|perspective --input FILE|- [--apply --request-key KEY]",
     "batch task --input FILE|- [--apply --request-key KEY]",
     "review project --input FILE|- [--apply --request-key KEY]",
   ],
@@ -85,13 +85,14 @@ export async function parseCommand(argv: string[], read = readInput) {
       "update",
       "complete",
       "move",
+      "reorder",
       "drop",
       "duplicate",
       "delete",
       "review",
       "batch",
     ].includes(command ?? "") &&
-    ["task", "project", "tag", "folder"].includes(rest[0] ?? "")
+    ["task", "project", "tag", "folder", "perspective"].includes(rest[0] ?? "")
   ) {
     const options = new Map<string, string>();
     let apply = false;

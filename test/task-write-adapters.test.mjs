@@ -329,3 +329,74 @@ test("PROCESS DOUBLE: Inbox-only CLI/core/MCP parity and unchanged generic catal
     await client.close();
   }
 });
+
+test("PROCESS DOUBLE: current-occurrence CLI and MCP preserve generated resource parity and opt-in authorization", async (t) => {
+  const dir = await setup(t, ["task.complete"]);
+  await writeFile(
+    join(dir, "mutation-authorization.json"),
+    JSON.stringify({
+      schema_version: 1,
+      scopes: ["task.complete"],
+      project_ids: ["project"],
+      allow_repeating_completion: true,
+    }),
+    { mode: 0o600 },
+  );
+  const env = {
+    ...process.env,
+    NOFUSS_STATE_DIR: dir,
+    NOFUSS_TEST_REPEATING: "1",
+  };
+  const output = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "./test/task-write-bootstrap.mjs",
+      "dist/cli.js",
+      "complete",
+      "task",
+      "--input",
+      "-",
+      "--apply",
+      "--request-key",
+      "repeat-adapter",
+    ],
+    {
+      env,
+      input: JSON.stringify({ task_id: "task", occurrence: "current" }),
+      encoding: "utf8",
+      timeout: 10000,
+    },
+  );
+  assert.equal(output.status, 0, output.stdout || output.stderr);
+  const expected = JSON.parse(output.stdout),
+    client = new Client({ name: "repeat-adapter", version: "1" });
+  try {
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [
+          "--import",
+          "./test/task-write-bootstrap.mjs",
+          "dist/cli.js",
+          "mcp",
+        ],
+        env,
+        stderr: "pipe",
+      }),
+    );
+    const actual = await client.callTool({
+      name: "nofuss_complete",
+      arguments: {
+        task_id: "task",
+        occurrence: "current",
+        apply: true,
+        request_key: "repeat-adapter",
+      },
+    });
+    assert.deepEqual(actual.structuredContent, expected);
+    assert.notEqual(expected.items[0].resource.id, "task");
+  } finally {
+    await client.close();
+  }
+});

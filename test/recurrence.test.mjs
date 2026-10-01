@@ -40,6 +40,18 @@ test("NATIVE-ALGORITHM DOUBLE: typed recurrence set/replace/clear with independe
       anchor: "defer",
       catch_up: false,
     },
+    { ...rule, frequency: "weekly", weekdays: ["TH", "TU"] },
+    { ...rule, frequency: "monthly", month_days: [31] },
+    {
+      ...rule,
+      frequency: "monthly",
+      ordinal_weekday: { ordinal: -1, weekday: "FR" },
+    },
+    {
+      ...rule,
+      frequency: "yearly",
+      interval: 1,
+    },
     null,
   ].entries()) {
     const args = {
@@ -54,7 +66,7 @@ test("NATIVE-ALGORITHM DOUBLE: typed recurrence set/replace/clear with independe
     assert.deepEqual(
       (await core.get({ ids: ["task"], fields: ["recurrence"] })).results[0]
         .task.recurrence,
-      value,
+      value?.weekdays ? { ...value, weekdays: ["TU", "TH"] } : value,
     );
   }
   assert.equal(native.task.repetitionRule, null);
@@ -86,6 +98,18 @@ test("NATIVE-ALGORITHM DOUBLE: alarm replacement compares semantic multiset, sec
 });
 test("NATIVE-ALGORITHM DOUBLE: bad anchors/mixed dates/groups/unsupported shapes reject all fields before first setter", async (t) => {
   for (const changes of [
+    {
+      name: "unsafe",
+      recurrence: { ...rule, frequency: "daily", month_days: [1] },
+    },
+    {
+      name: "unsafe",
+      recurrence: {
+        ...rule,
+        frequency: "yearly",
+        ordinal_weekday: { ordinal: 1, weekday: "MO" },
+      },
+    },
     { name: "unsafe", recurrence: rule, due_at: null },
     {
       name: "unsafe",
@@ -150,16 +174,22 @@ test("NATIVE-ALGORITHM DOUBLE: generated sibling identity prevents an applied cl
 });
 test("NATIVE-ALGORITHM DOUBLE: unsupported recurrence read is explicit unavailable, never null or truncated rule", async (t) => {
   const { native, core } = await setup(t);
-  native.task.repetitionRule = {
-    ruleString: "FREQ=MONTHLY;BYDAY=MO",
-    scheduleType: "Regularly",
-    anchorDateKey: "DueDate",
-    catchUpAutomatically: false,
-  };
-  const row = (
-    await core.get({ ids: ["task"], fields: ["name", "recurrence"] })
-  ).results[0].task;
-  assert.equal(row.name, "baseline");
-  assert.equal(row.recurrence, undefined);
-  assert.equal(row.unavailable.recurrence.code, "RECURRENCE_UNSUPPORTED");
+  for (const ruleString of [
+    "FREQ=MONTHLY;BYDAY=MO",
+    "FREQ=YEARLY;BYMONTH=2",
+    "FREQ=WEEKLY;BYDAY=MO;COUNT=3",
+  ]) {
+    native.task.repetitionRule = {
+      ruleString,
+      scheduleType: "Regularly",
+      anchorDateKey: "DueDate",
+      catchUpAutomatically: false,
+    };
+    const row = (
+      await core.get({ ids: ["task"], fields: ["name", "recurrence"] })
+    ).results[0].task;
+    assert.equal(row.name, "baseline");
+    assert.equal(row.recurrence, undefined);
+    assert.equal(row.unavailable.recurrence.code, "RECURRENCE_UNSUPPORTED");
+  }
 });

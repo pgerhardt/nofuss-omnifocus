@@ -4,7 +4,7 @@ import {
   TaskCreateShape,
   validCreateDestination,
   TaskUpdateInput,
-  TaskCompleteInput,
+  TaskLifecycleInput,
   TaskMoveInput,
   TaskScalarChanges,
 } from "./task-writes.js";
@@ -75,7 +75,27 @@ export const TaskBatchInput = z.discriminatedUnion("action", [
       ...common,
       action: z.literal("complete"),
       items: z
-        .array(TaskCompleteInput.omit(omit).extend({ item_key: key }))
+        .array(TaskLifecycleInput.omit(omit).extend({ item_key: key }))
+        .min(1)
+        .max(20),
+    })
+    .strict(),
+  z
+    .object({
+      ...common,
+      action: z.literal("drop"),
+      items: z
+        .array(TaskLifecycleInput.omit(omit).extend({ item_key: key }))
+        .min(1)
+        .max(20),
+    })
+    .strict(),
+  z
+    .object({
+      ...common,
+      action: z.literal("delete"),
+      items: z
+        .array(TaskLifecycleInput.omit(omit).extend({ item_key: key }))
         .min(1)
         .max(20),
     })
@@ -130,7 +150,9 @@ export class TaskBatch {
       | "task.create"
       | "task.update"
       | "task.move"
-      | "task.complete";
+      | "task.complete"
+      | "task.drop"
+      | "task.delete";
     const scalars = await Promise.all(
       args.items.map(({ item_key: _key, ...input }) =>
         new TaskWrites(this.native, this.core, this.directory).prepare(scope, {

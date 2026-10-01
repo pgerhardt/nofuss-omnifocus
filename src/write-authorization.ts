@@ -8,23 +8,33 @@ export const WRITE_SCOPES = [
   "task.update",
   "task.complete",
   "task.move",
+  "task.reorder",
   "task.drop",
   "task.duplicate",
   "task.delete",
   "task.batch",
+  "perspective.create",
+  "perspective.update",
+  "perspective.delete",
   "project.create",
   "project.update",
   "project.complete",
   "project.drop",
   "project.move",
+  "project.delete",
+  "project.reorder",
   "project.set_review_interval",
   "project.mark_reviewed",
   "tag.create",
   "tag.update",
   "tag.move",
+  "tag.delete",
+  "tag.reorder",
   "folder.create",
   "folder.update",
   "folder.move",
+  "folder.delete",
+  "folder.reorder",
 ] as const;
 export type WriteScope = (typeof WRITE_SCOPES)[number];
 const policySchema = z
@@ -35,10 +45,13 @@ const policySchema = z
     task_ids: z.array(z.string().min(1).max(256)).max(100).default([]),
     folder_ids: z.array(z.string().min(1).max(256)).max(100).default([]),
     allow_inbox: z.boolean().default(false),
+    allow_repeating_completion: z.boolean().default(false),
     allow_project_creation: z.boolean().default(false),
     tag_ids: z.array(z.string().min(1).max(256)).max(100).default([]),
     allow_tag_creation: z.boolean().default(false),
     allow_folder_creation: z.boolean().default(false),
+    perspective_ids: z.array(z.string().min(1).max(256)).max(100).default([]),
+    allow_perspective_creation: z.boolean().default(false),
   })
   .strict()
   .refine(
@@ -47,7 +60,8 @@ const policySchema = z
       new Set(p.project_ids).size === p.project_ids.length &&
       new Set(p.task_ids).size === p.task_ids.length &&
       new Set(p.folder_ids).size === p.folder_ids.length &&
-      new Set(p.tag_ids).size === p.tag_ids.length,
+      new Set(p.tag_ids).size === p.tag_ids.length &&
+      new Set(p.perspective_ids).size === p.perspective_ids.length,
   );
 export type WritePolicy = z.infer<typeof policySchema>;
 export async function readWritePolicy(
@@ -95,16 +109,28 @@ export function enabledWriteScopes(policy: WritePolicy | null): WriteScope[] {
     if (!policy?.scopes.includes(scope)) return false;
     if (scope === "task.batch")
       return (
-        ["task.create", "task.update", "task.move", "task.complete"].some((s) =>
-          policy.scopes.includes(s as WriteScope),
-        ) &&
+        [
+          "task.create",
+          "task.update",
+          "task.move",
+          "task.complete",
+          "task.drop",
+          "task.delete",
+        ].some((s) => policy.scopes.includes(s as WriteScope)) &&
         (policy.project_ids.length > 0 ||
           (policy.allow_inbox &&
             ["task.create", "task.update"].some((s) =>
               policy.scopes.includes(s as WriteScope),
             )) ||
-          (policy.task_ids.length > 0 && policy.scopes.includes("task.move")))
+          (policy.task_ids.length > 0 &&
+            ["task.move", "task.drop", "task.delete"].some((s) =>
+              policy.scopes.includes(s as WriteScope),
+            )))
       );
+    if (scope.startsWith("perspective."))
+      return scope === "perspective.create"
+        ? policy.allow_perspective_creation
+        : policy.perspective_ids.length > 0;
     if (scope.startsWith("tag."))
       return scope === "tag.create"
         ? policy.allow_tag_creation
@@ -120,9 +146,13 @@ export function enabledWriteScopes(policy: WritePolicy | null): WriteScope[] {
     return (
       policy.project_ids.length > 0 ||
       (["task.create", "task.update"].includes(scope) && policy.allow_inbox) ||
-      (["task.move", "task.drop", "task.duplicate", "task.delete"].includes(
-        scope,
-      ) &&
+      ([
+        "task.move",
+        "task.reorder",
+        "task.drop",
+        "task.duplicate",
+        "task.delete",
+      ].includes(scope) &&
         policy.task_ids.length > 0)
     );
   });
