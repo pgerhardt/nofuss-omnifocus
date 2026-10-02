@@ -185,7 +185,7 @@ bridge, cross-process scheduler or native result cache is added.
 
 Writes require explicit host authorization and apply intent. See [safe writes](safe-writes.md)
 for current subsets and exclusions. Arbitrary scripts, sync-completion truth,
-attachment CRUD and locations remain deferred. Typed custom perspective mutation is
+remote sync completion remains unavailable; bounded attachment CRUD and locations are supported. Typed custom perspective mutation is
 available on the development branch; headless evaluation remains unavailable.
 `doctor` reports the same build/native/capability/verification facts as `nofuss_status`.
 
@@ -200,7 +200,7 @@ available on the development branch; headless evaluation remains unavailable.
 - `src/cli-command.ts`, `src/cli.ts`: strict argv/file/stdin input, JSON output,
   exit mapping and optional dynamic MCP launch.
 - `src/service.ts`: thin compatibility MCP presentation adapter; `src/index.ts`:
-  four default read registrations, optional policy-gated task tools, annotations
+  ten default read registrations, optional policy-gated task tools, annotations
   and stdio server lifecycle.
 
 `NoFussCore.execute(operation, input, signal?)` accepts shared reads and declared
@@ -221,3 +221,30 @@ The existing `create task` accepts exactly one of legacy `project_id`,
 Inbox scalar updates require exact `task_id`, `changes`, `allow_inbox:true` and
 `task.update` scope. Parent capture authorizes its actual native containing project
 or explicit Inbox scope. See [capture contract](inbox-parent-capture.md).
+
+## Post-beta.3 bounded native families
+
+The development branch adds JSON-input reads `attachments`, `sync-status`,
+`location`, `export` and `plugins`. Mutation verbs are `attach|detach task|project`,
+`trigger sync`, `set_location tag` and `import_outline project`. Use `--input FILE|-`;
+preview is default, and `--apply --request-key KEY` uses the same durable safety
+contract as other writes. New verbs return the existing mutation outcome exit codes.
+See [attachments](native-capabilities.md) and [native family contracts](native-capabilities.md)
+for exact schemas, ownership, bounds, lossiness and unavailable observations.
+
+## Ordinary native closure additions
+
+The `preferences` read takes optional exact `tag_id` through `--input FILE|-`.
+New mutation commands are `uncomplete task`, `undrop task`, `convert_to_project task`,
+`set_forecast_tag document`, `set_allows_next_action tag` and
+`set_next_review_date project`. They use strict JSON, preview by default, exact host
+authority and the existing apply/request-key contract. See
+[ordinary operation schemas](native-capabilities.md).
+
+`export` accepts exactly one `project_id`, `project_ids` (1–5) or `folder_id`, with
+`format:taskpaper|opml`. `import_outline project` accepts
+`format:outline|taskpaper|opml`; unknown metadata rejects. See
+[interchange bounds and lossiness](native-capabilities.md).
+Typed perspective writes include the predicates and icon color described in
+[perspectives](perspectives.md). Plain task/project note replacement rejects
+styled, linked, embedded or unknown content before setters, including task batches.

@@ -4,6 +4,19 @@ import { join } from "node:path";
 import { z } from "zod";
 import { stateDirectory } from "./mutation-journal.js";
 export const WRITE_SCOPES = [
+  "document.set_forecast_tag",
+  "tag.set_allows_next_action",
+  "project.set_next_review_date",
+  "project.import_outline",
+  "tag.set_location",
+  "sync.trigger",
+  "task.attach",
+  "task.detach",
+  "project.attach",
+  "project.detach",
+  "task.uncomplete",
+  "task.undrop",
+  "task.convert_to_project",
   "task.create",
   "task.update",
   "task.complete",
@@ -44,6 +57,8 @@ const policySchema = z
     project_ids: z.array(z.string().min(1).max(256)).max(100),
     task_ids: z.array(z.string().min(1).max(256)).max(100).default([]),
     folder_ids: z.array(z.string().min(1).max(256)).max(100).default([]),
+    allow_sync: z.boolean().default(false),
+    allow_preferences: z.boolean().default(false),
     allow_inbox: z.boolean().default(false),
     allow_repeating_completion: z.boolean().default(false),
     allow_project_creation: z.boolean().default(false),
@@ -107,6 +122,7 @@ export async function readWritePolicy(
 export function enabledWriteScopes(policy: WritePolicy | null): WriteScope[] {
   return WRITE_SCOPES.filter((scope) => {
     if (!policy?.scopes.includes(scope)) return false;
+    if (scope === "document.set_forecast_tag") return policy.allow_preferences;
     if (scope === "task.batch")
       return (
         [
@@ -127,6 +143,22 @@ export function enabledWriteScopes(policy: WritePolicy | null): WriteScope[] {
               policy.scopes.includes(s as WriteScope),
             )))
       );
+    if (scope === "task.convert_to_project")
+      return (
+        policy.allow_project_creation &&
+        (policy.project_ids.length > 0 ||
+          (policy.allow_inbox && policy.task_ids.length > 0))
+      );
+    if (["task.uncomplete", "task.undrop"].includes(scope))
+      return (
+        policy.project_ids.length > 0 ||
+        (policy.allow_inbox && policy.task_ids.length > 0)
+      );
+    if (scope === "project.import_outline")
+      return policy.project_ids.length > 0 && policy.allow_inbox;
+    if (scope === "sync.trigger") return policy.allow_sync;
+    if (["task.attach", "task.detach"].includes(scope))
+      return policy.task_ids.length > 0;
     if (scope.startsWith("perspective."))
       return scope === "perspective.create"
         ? policy.allow_perspective_creation

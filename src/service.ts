@@ -47,6 +47,9 @@ export class ReadService {
           result.items.some((i) => i.outcome !== "applied")),
     );
   }
+  async execute(operation: string, input: unknown, signal?: AbortSignal) {
+    return mcpResult(await this.core.execute(operation, input, signal));
+  }
   async get(input: unknown, signal?: AbortSignal) {
     const data = await this.core.get(input, signal);
     return mcpResult(

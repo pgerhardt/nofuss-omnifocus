@@ -107,10 +107,16 @@ test("actual MCP registration/handlers preserve inputs and stdout stays protocol
     s.send(2, "tools/list");
     const tools = (await s.response(2)).result.tools;
     assert.deepEqual(tools.map((t) => t.name).sort(), [
+      "nofuss_attachments",
+      "nofuss_export",
       "nofuss_get",
+      "nofuss_location",
       "nofuss_overview",
+      "nofuss_plugins",
+      "nofuss_preferences",
       "nofuss_query",
       "nofuss_status",
+      "nofuss_sync_status",
     ]);
     assert.ok(
       tools.every(

@@ -2,9 +2,9 @@
 
 Read perspective state and make explicitly authorized bounded typed custom perspective mutations.
 
-Use existing `nofuss_get` with `entity: "perspective"`, or `nofuss_query` library scope. CLI equivalents: `get perspective ID` and `query perspectives --scope library`. The default MCP catalog stays four reads.
+Use existing `nofuss_get` with `entity: "perspective"`, or `nofuss_query` library scope. CLI equivalents: `get perspective ID` and `query perspectives --scope library`. The current default MCP catalog has ten reads.
 
-Brief fields: name, kind, identity_kind. Custom identities are exact native persistent identifiers; built-ins use explicit stable enum keys such as `builtin_inbox`, `builtin_projects`, `builtin_forecast`, and `builtin_review`. Built-in keys are not advertised as persistent database IDs or localized names. Detail adds created/modified timestamps, rule_archive, rule_aggregation and evaluation. Ordering/pagination remains created_at ascending (null first for built-ins), then exact ID, with complete projection binding and live-not-snapshot semantics. Names retain owner-bound Unicode continuation.
+Brief fields: name, kind, identity_kind. Custom identities are exact native persistent identifiers; built-ins use explicit stable enum keys such as `builtin_inbox`, `builtin_projects`, `builtin_forecast`, and `builtin_review`. Built-in keys are not advertised as persistent database IDs or localized names. Detail adds created/modified timestamps, rule_archive, rule_aggregation, icon_color and evaluation. Ordering/pagination remains created_at ascending (null first for built-ins), then exact ID, with complete projection binding and live-not-snapshot semantics. Names retain owner-bound Unicode continuation.
 
 `rule_archive` is a read-only wrapper `{ format: "native_unversioned", application_version, rules }`. Native JSON is preserved without interpreting or executing it. Null aggregation is preserved as null; recognized non-null values are all/any/none. Built-in archives/aggregation are explicitly unavailable. Oversized archives are unavailable rather than silently truncated. No raw rule write surface exists.
 
@@ -24,8 +24,7 @@ added to the host policy.
 Rules are a typed tree: `{kind:"availability",value:"remaining"|"available"|"completed"}`,
 `{kind:"flagged"}`, or `{kind:"group",aggregation:"all"|"any"|"none",rules:[...]}`.
 No raw archive or script fields are accepted. Maximum 10 root/child rules, 50 total
-nodes and depth 4; native snapshots are bounded to 16 KiB. Other native predicates,
-disabled wrappers, icons, layout and richer perspective settings are deferred.
+nodes and depth 4; native snapshots are bounded to 16,000 bytes. Due, has-due, leaf, exact tag/focus-project references, search, disabled wrappers and RGB icon color are now supported as described below. Layout/display archive fields remain unverified.
 Native archive setters normalize no supported fields in observed roundtrips.
 
 On installed 4.9.2, `new Perspective.Custom` fails and JXA `make` of **custom
@@ -46,4 +45,38 @@ may-have-started persistence remain unchanged.
 
 The installed API exposes no headless evaluator. Visible selected-window reads
 remain useful and honest; rule mutation does not switch or create user windows and
-does not assert a complete task result. Richer rule/settings support remains deferred.
+does not assert a complete task result. Unverified archive/layout settings remain excluded.
+
+## Ordinary typed extensions — NFO-50
+
+Additional rules: `{kind:"due"}`, `{kind:"has_due"}`, `{kind:"leaf"}`,
+`{kind:"search",terms:[...]}`, `{kind:"tags",match:"all"|"any",tag_ids:[EXACT_ID...]}`,
+`{kind:"focus",project_ids:[EXACT_ID...]}`, `{kind:"disabled",rule:RULE}`.
+Use a `none` group to negate predicates, including leaf to select groups. Native
+boolean false disables a predicate; it does not negate it. Search terms are 1-10
+nonempty strings up to 256 characters; tag/project lists are 1-10 unique exact IDs.
+At most 20 distinct references, existing depth/50-node bounds, combined snapshots
+16,000 bytes. Native exact tag/project facts and explicit host authority must survive
+preflight and independent readback. No name resolution or folder/task focus aliases.
+
+`icon_color` is null or `{r,g,b,a}` channels in [0,1], normalized to float32.
+Create may specify it; update patches it independently. Native RGB color set/clear
+and separate public/native reads match. Existing non-RGB colors reject mutation;
+unknown native rule archives survive icon/name-only patches. Raw archive input
+remains forbidden. Replacing rules is explicit and writes only proved typed atoms.
+
+Semantics were observed through a disposable real native window, focused only on
+owned fixtures, then closed; original window/perspective/focus and object inventories
+restored. Positive due/tag/search/leaf, contrasting tag/focus matches, explicit none
+for group selection and disabled-rule behavior were verified. This evidence does
+not create a headless evaluator or change the already-selected-window read contract.
+OmniJS window close finishes asynchronously; final separate native reads established
+restoration. Three NoFuss create/icon-clear/delete requests and replay finalized
+applied under isolated policies, exact owned objects absent, windows unchanged.
+15 focused / 361 full tests pass; NFO-9 boundary remains shared.
+
+Layout/display fields have no installed typed declaration/semantic validator.
+Unknown archive keys roundtrip even when invented. Such writes remain intentionally
+excluded rather than advertised from storage evidence. Headless evaluation remains
+NATIVE LIMITATION; broader task/folder focus and unverified archive atoms are deliberate
+bounded-profile exclusions.

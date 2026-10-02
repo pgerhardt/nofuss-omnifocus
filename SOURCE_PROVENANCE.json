@@ -1,8 +1,8 @@
 {
-  "reviewed_source_revision": "99e3477189ec227b01f2a0b18f4639deb2c14671",
-  "release_source_revision": "ee8871303db7f1942c7fb3e635c9af28718d8278",
-  "source_sha256": "1773609065064730fe5f34bf23d17eed1d9d198ab122d271f6a952e9bfa60fab",
-  "release": "v0.1.0-beta.3",
+  "reviewed_source_revision": "ee913e9ccda7bcab74ccc15f3c3eeb266d6f3e29",
+  "release_source_revision": "2b18c2b2016ca0ef694dffc876e0c4c496b0a7fa",
+  "source_sha256": "924aec73e8d012ce4f4f3858961424b121bfca211b644dd581142e2a14eed321",
+  "release": "v0.1.0-beta.4",
   "review_verdict": "READY AFTER REVIEW FIXES",
   "runtime_and_test_source_unchanged_from_review": true
 }

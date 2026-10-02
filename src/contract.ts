@@ -96,6 +96,7 @@ export const PERSPECTIVE_FIELDS = [
   "modified_at",
   "rule_archive",
   "rule_aggregation",
+  "icon_color",
   "evaluation",
 ] as const;
 export type Entity = "task" | "project" | "tag" | "folder" | "perspective";
@@ -490,7 +491,7 @@ export const Recurrence = z
     frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
     interval: z.number().int().min(1).max(1000),
     schedule: z.enum(["regularly", "from_completion"]),
-    anchor: z.enum(["due", "defer"]),
+    anchor: z.enum(["due", "defer", "planned"]),
     catch_up: z.boolean(),
     weekdays: z
       .array(Weekday)
@@ -728,6 +729,11 @@ export const PerspectiveRecord = z
       })
       .strict()
       .optional(),
+    icon_color: z
+      .object({ r: z.number(), g: z.number(), b: z.number(), a: z.number() })
+      .strict()
+      .nullable()
+      .optional(),
     rule_aggregation: z.enum(["all", "any", "none"]).nullable().optional(),
     evaluation: z
       .object({
@@ -932,14 +938,18 @@ export const CAPABILITIES = {
   overview: true,
   overview_waiting: true,
   writes: false,
-  attachments: false,
+  attachments: true,
   perspectives: true,
   perspective_fields: PERSPECTIVE_FIELDS,
   perspective_rule_writes: false,
   perspective_evaluation: "already_selected_visible_window",
   recurrence: true,
   sync_completion: false,
-  locations: false,
+  locations: true,
+  sync_local_status: true,
+  bounded_project_export: true,
+  plugin_discovery: true,
+  plugin_invocation: false,
   inbox_forwarding: false,
   native_available_child_count: false,
   defer_relative_notifications: false,

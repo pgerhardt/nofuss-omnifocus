@@ -98,7 +98,7 @@ test("NATIVE-EVIDENCE DOUBLE: missing spring clock normalizes on completion day 
     "applied",
   );
 });
-test("NATIVE-EVIDENCE DOUBLE: completion day rollover conflicts before mutation; floating and custom selectors reject", async (t) => {
+test("NATIVE-EVIDENCE DOUBLE: completion day rollover conflicts before mutation; floating and unsupported yearly selectors reject", async (t) => {
   const { native, core, setClock } = await setup(t);
   native.beforeApply = () => setClock("2026-09-21T20:00:00Z");
   const result = await core.mutate("task.complete", args);
@@ -110,7 +110,7 @@ test("NATIVE-EVIDENCE DOUBLE: completion day rollover conflicts before mutation;
       fixture.native.task.shouldUseFloatingTimeZone = true;
     else
       fixture.native.task.repetitionRule.ruleString =
-        "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,FR";
+        "FREQ=YEARLY;INTERVAL=1;BYDAY=1MO";
     const rejected = await fixture.core.mutate("task.complete", args);
     assert.equal(rejected.error.code, "REPEATING_COMPLETION_UNSUPPORTED");
     assert.equal(fixture.native.events.length, 0);

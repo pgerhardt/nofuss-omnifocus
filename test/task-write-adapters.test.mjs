@@ -11,6 +11,12 @@ const reads = [
   "nofuss_query",
   "nofuss_overview",
   "nofuss_status",
+  "nofuss_attachments",
+  "nofuss_sync_status",
+  "nofuss_location",
+  "nofuss_export",
+  "nofuss_plugins",
+  "nofuss_preferences",
 ];
 async function setup(t, scopes) {
   const dir = await mkdtemp(join(tmpdir(), "nfo-adapter-"));
@@ -102,7 +108,7 @@ for (const scopes of [
               .map((s) => "nofuss_" + s.slice(5)),
           ],
         );
-        for (const tool of tools.slice(4)) {
+        for (const tool of tools.slice(reads.length)) {
           assert.equal(tool.annotations.readOnlyHint, false);
           assert.equal(tool.annotations.idempotentHint, false);
           assert.equal(tool.outputSchema, undefined);

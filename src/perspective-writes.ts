@@ -18,7 +18,11 @@ import type { NativeWorker } from "./worker.js";
 import type { NoFussCore } from "./core.js";
 type Rule =
   | { kind: "availability"; value: "remaining" | "available" | "completed" }
-  | { kind: "flagged" }
+  | { kind: "flagged" | "due" | "has_due" | "leaf" }
+  | { kind: "search"; terms: string[] }
+  | { kind: "tags"; match: "all" | "any"; tag_ids: string[] }
+  | { kind: "focus"; project_ids: string[] }
+  | { kind: "disabled"; rule: Rule }
   | { kind: "group"; aggregation: "all" | "any" | "none"; rules: Rule[] };
 const Rule: z.ZodType<Rule> = z.lazy(() =>
   z.discriminatedUnion("kind", [
@@ -29,6 +33,37 @@ const Rule: z.ZodType<Rule> = z.lazy(() =>
       })
       .strict(),
     z.object({ kind: z.literal("flagged") }).strict(),
+    z.object({ kind: z.literal("due") }).strict(),
+    z.object({ kind: z.literal("has_due") }).strict(),
+    z.object({ kind: z.literal("leaf") }).strict(),
+    z
+      .object({
+        kind: z.literal("search"),
+        terms: z.array(z.string().min(1).max(256)).min(1).max(10),
+      })
+      .strict(),
+    z.object({ kind: z.literal("disabled"), rule: Rule }).strict(),
+    z
+      .object({
+        kind: z.literal("tags"),
+        match: z.enum(["all", "any"]),
+        tag_ids: z
+          .array(z.string().min(1).max(256))
+          .min(1)
+          .max(10)
+          .refine((x) => new Set(x).size === x.length),
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("focus"),
+        project_ids: z
+          .array(z.string().min(1).max(256))
+          .min(1)
+          .max(10)
+          .refine((x) => new Set(x).size === x.length),
+      })
+      .strict(),
     z
       .object({
         kind: z.literal("group"),
@@ -48,7 +83,9 @@ const rules = z
         return (
           ++count <= 50 &&
           d <= 4 &&
-          (r.kind !== "group" || r.rules.every((x) => check(x, d + 1)))
+          (r.kind === "disabled"
+            ? check(r.rule, d + 1)
+            : r.kind !== "group" || r.rules.every((x) => check(x, d + 1)))
         );
       }
       return rs.every((r) => check(r, 0));
@@ -62,9 +99,31 @@ const rules = z
     request_key: id.optional(),
     preconditions: z.array(Fact).max(10).default([]),
   };
+const color = z
+  .object({
+    r: z.number().min(0).max(1),
+    g: z.number().min(0).max(1),
+    b: z.number().min(0).max(1),
+    a: z.number().min(0).max(1),
+  })
+  .strict()
+  .nullable()
+  .transform((v) =>
+    v
+      ? Object.fromEntries(
+          Object.entries(v).map(([k, x]) => [k, Math.fround(x)]),
+        )
+      : null,
+  );
 export const PerspectiveInputs = {
   "perspective.create": z
-    .object({ ...options, name, rules, aggregation })
+    .object({
+      ...options,
+      name,
+      rules,
+      aggregation,
+      icon_color: color.optional(),
+    })
     .strict(),
   "perspective.update": z
     .object({
@@ -75,6 +134,7 @@ export const PerspectiveInputs = {
           name: name.optional(),
           rules: rules.optional(),
           aggregation: aggregation.optional(),
+          icon_color: color.optional(),
         })
         .strict()
         .refine((x) => Object.keys(x).length > 0),
@@ -96,11 +156,24 @@ const receiptSchema = z
   })
   .strict();
 function archive(r: Rule): Json {
-  return r.kind === "availability"
-    ? { actionAvailability: r.value }
-    : r.kind === "flagged"
-      ? { actionStatus: "flagged" }
-      : { aggregateType: r.aggregation, aggregateRules: r.rules.map(archive) };
+  if (r.kind === "availability") return { actionAvailability: r.value };
+  if (r.kind === "flagged" || r.kind === "due") return { actionStatus: r.kind };
+  if (r.kind === "has_due") return { actionHasDueDate: true };
+  if (r.kind === "leaf") return { actionIsLeaf: true };
+  if (r.kind === "search") return { actionMatchingSearch: r.terms };
+  if (r.kind === "tags")
+    return {
+      [r.match === "all" ? "actionHasAllOfTags" : "actionHasAnyOfTags"]:
+        r.tag_ids,
+    };
+  if (r.kind === "focus") return { actionWithinFocus: r.project_ids };
+  if (r.kind === "disabled") return { disabledRule: archive(r.rule) };
+  if (r.kind === "group")
+    return {
+      aggregateType: r.aggregation,
+      aggregateRules: r.rules.map(archive),
+    };
+  throw Error("unsupported rule");
 }
 export class PerspectiveWrites {
   constructor(
@@ -140,9 +213,33 @@ export class PerspectiveWrites {
                 name: args.name,
                 rules: args.rules,
                 aggregation: args.aggregation,
+                ...(args.icon_color !== undefined
+                  ? { icon_color: args.icon_color }
+                  : {}),
               }
             : {}
       ) as Record<string, Json>;
+    const references: Reference[] = [];
+    function collect(r: Rule) {
+      if (r.kind === "tags")
+        references.push(...r.tag_ids.map((id) => ({ entity: "tag", id })));
+      else if (r.kind === "focus")
+        references.push(
+          ...r.project_ids.map((id) => ({ entity: "project", id })),
+        );
+      else if (r.kind === "group") r.rules.forEach(collect);
+      else if (r.kind === "disabled") collect(r.rule);
+    }
+    if (changes.rules) (changes.rules as Rule[]).forEach(collect);
+    const exactReferences = references.filter(
+      (r, i) =>
+        references.findIndex((x) => canonical(x) === canonical(r)) === i,
+    );
+    if (exactReferences.length > 20)
+      throw new MutationError(
+        "INVALID_MUTATION",
+        "Perspective reference bound",
+      );
     const request: MutationRequest = {
       operation: { kind: scope, version: 1 },
       ...(args.request_key ? { request_key: args.request_key } : {}),
@@ -150,7 +247,7 @@ export class PerspectiveWrites {
         {
           item_key: "perspective",
           targets: create ? [] : [ref],
-          references: create ? [ref] : [],
+          references: [...(create ? [ref] : []), ...exactReferences],
           changes,
           preconditions: args.preconditions,
           payload: null,
@@ -162,7 +259,12 @@ export class PerspectiveWrites {
         !!p?.scopes.includes(scope) &&
         (create
           ? p.allow_perspective_creation
-          : p.perspective_ids.includes(ref.id));
+          : p.perspective_ids.includes(ref.id)) &&
+        exactReferences.every((r) =>
+          r.entity === "tag"
+            ? p.tag_ids.includes(r.id)
+            : p.project_ids.includes(r.id),
+        );
     const planner: Planner = {
       operation: request.operation,
       validate: (item, resolved) => {
@@ -172,11 +274,18 @@ export class PerspectiveWrites {
             "Exact perspective ownership/creation denied",
           );
         const baseline = resolved[0]!.facts.snapshot!;
+        if (Buffer.byteLength(JSON.stringify(resolved)) > 16000)
+          throw new MutationError(
+            "INVALID_MUTATION",
+            "Combined perspective snapshot bound",
+          );
         return {
           item_key: item.item_key,
-          preconditions: item.preconditions.length
-            ? []
-            : [{ reference: ref, field: "snapshot", expected: baseline }],
+          preconditions: resolved.map((r) => ({
+            reference: r.reference,
+            field: "snapshot",
+            expected: r.facts.snapshot!,
+          })),
           predicted_changes: del ? { deleted_id: ref.id } : changes,
           payload: { baseline },
         };
@@ -228,7 +337,7 @@ export class PerspectiveWrites {
           fields:
             del || receipt.rolled_back
               ? []
-              : ["name", "rule_archive", "rule_aggregation"],
+              : ["name", "rule_archive", "rule_aggregation", "icon_color"],
         });
         if (
           publicRead.results[0]?.error &&
@@ -247,6 +356,16 @@ export class PerspectiveWrites {
               !(baseline.ids as string[]).includes(identity)) ||
             (receipt.rolled_back && current === null)
           : current === null || canonical(current) !== canonical(baseline);
+        const referencesPreserved = await Promise.all(
+          exactReferences.map(async (r) => {
+            const pre = plan.items[0]!.preconditions.find(
+              (f) => canonical(f.reference) === canonical(r),
+            );
+            return (
+              canonical(await this.snapshot(r)) === canonical(pre?.expected)
+            );
+          }),
+        );
         let pass = false;
         if (del)
           pass =
@@ -254,7 +373,10 @@ export class PerspectiveWrites {
             publicRead.results[0]?.error?.code === "NOT_FOUND";
         else if (!receipt.rolled_back && current) {
           const expected: Snapshot = {
-            ...(create ? { id: identity } : baseline),
+            ...(create ? { id: identity, icon_color: null } : baseline),
+            ...("icon_color" in changes
+              ? { icon_color: changes.icon_color }
+              : {}),
             ...("name" in changes ? { name: changes.name } : {}),
             ...("rules" in changes
               ? { rules: (changes.rules as Rule[]).map(archive) }
@@ -270,7 +392,8 @@ export class PerspectiveWrites {
             !row.truncated &&
             row.name === expected.name &&
             canonical(row.rule_archive?.rules) === canonical(expected.rules) &&
-            row.rule_aggregation === expected.aggregation;
+            row.rule_aggregation === expected.aggregation &&
+            canonical(row.icon_color) === canonical(expected.icon_color);
           if (create) {
             const inventory = await this.snapshot(ref);
             pass =
@@ -285,7 +408,7 @@ export class PerspectiveWrites {
             {
               item_key: "perspective",
               resource,
-              all_postconditions: pass,
+              all_postconditions: pass && referencesPreserved.every(Boolean),
               some_effects: someEffects,
               evidence: [
                 "Returned persistent constructor identity; independent exact native and public rule/archive readback.",

@@ -363,3 +363,30 @@ test("NATIVE-ALGORITHM DOUBLE: known create ID missing on independent read is un
   await core.mutate("task.create", input);
   assert.equal(native.events.length, count);
 });
+
+test("Rich or unknown task note replacement rejects before setters", async (t) => {
+  const { core, native } = await setup(t);
+  native.task.noteText = {
+    string: "rich",
+    attachments: [],
+    attributeRuns: [
+      {
+        style: {
+          namedStyles: [],
+          link: null,
+          locallyDefinedAttributes: [{ key: "font-weight" }],
+          get: () => 9,
+        },
+      },
+    ],
+  };
+  const result = await core.mutate("task.update", {
+    task_id: "task",
+    changes: { note: "flat" },
+    apply: true,
+    request_key: "rich-note",
+  });
+  assert.equal(result.error.code, "INVALID_MUTATION");
+  assert.deepEqual(native.events, []);
+  assert.equal(native.task.noteText.string, "rich");
+});

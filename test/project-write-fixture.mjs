@@ -24,6 +24,7 @@ export function fixture() {
       this.parentFolder = folder;
       this.name = name;
       this.note = "";
+      this.task.noteText = { attachments: [], attributeRuns: [] };
       this.flagged = false;
       this.tags = [];
       this.status = status.Active;

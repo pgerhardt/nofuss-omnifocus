@@ -131,6 +131,31 @@ const Receipt = z
   })
   .strict();
 type Snapshot = Record<string, Json>;
+function verifiedOccurrenceAlarms(s: Snapshot): boolean {
+  const ns = s.notifications as Snapshot[];
+  if (!ns.length) return true;
+  const rule = s.recurrence as Snapshot;
+  if (ns.length !== 1 || rule.schedule !== "regularly" || rule.anchor !== "due")
+    return false;
+  const n = ns[0]!;
+  return (
+    ["absolute", "due_relative"].includes(n.kind as string) &&
+    n.task_id === s.id &&
+    !n.is_snoozed &&
+    !n.floating_time_zone &&
+    n.repeat_interval_seconds === 0 &&
+    typeof n.initial_fire_at === "string" &&
+    n.next_fire_at === n.initial_fire_at &&
+    (n.kind === "absolute"
+      ? n.absolute_fire_at === n.initial_fire_at
+      : Number.isInteger(n.relative_offset_minutes) &&
+        n.initial_fire_at ===
+          new Date(
+            Date.parse(s.due_at as string) +
+              (n.relative_offset_minutes as number) * 60000,
+          ).toISOString())
+  );
+}
 export class TaskWrites {
   constructor(
     private native: Pick<NativeWorker, "run">,
@@ -468,25 +493,18 @@ export class TaskWrites {
               target.ancestor_tentative ||
               target.assigned_container_id !== null ||
               target.attachment_count !== 0 ||
-              (target.notifications as Json[]).length ||
+              !verifiedOccurrenceAlarms(target) ||
               target.planned_supported !== true ||
-              target.planned_at !== null ||
+              ["due", "defer", "planned"].some(
+                (k) => k !== rule.anchor && target[k + "_at"] !== null,
+              ) ||
               target.floating ||
-              (rule.anchor === "due"
-                ? target.defer_at !== null
-                : target.due_at !== null) ||
               typeof target.next_occurrence_at !== "string" ||
-              !Number.isFinite(Date.parse(target.next_occurrence_at)) ||
-              (rule.schedule === "regularly" &&
-                Date.parse(
-                  (rule.anchor === "due"
-                    ? target.due_at
-                    : target.defer_at) as string,
-                ) <= Date.now())
+              !Number.isFinite(Date.parse(target.next_occurrence_at))
             )
               throw new MutationError(
                 "REPEATING_COMPLETION_UNSUPPORTED",
-                "Current occurrence requires a future regular rule or a plain from-completion interval, a local single anchor, no catch-up/alarms/attachments/planned/floating dates or unsafe ancestors.",
+                "Current occurrence requires a verified regular or from-completion calendar rule, a local single anchor, no catch-up/unsupported alarms/attachments/floating dates or unsafe ancestors.",
               );
           } else if (target.repeating || target.ancestor_repeating)
             throw new MutationError(
@@ -505,6 +523,15 @@ export class TaskWrites {
               "Complete requires an unfinished ordinary leaf without automatic ancestor completion.",
             );
         }
+        if (
+          scope === "task.update" &&
+          "note" in item.changes &&
+          target.note_plain_safe !== true
+        )
+          throw new MutationError(
+            "INVALID_MUTATION",
+            "Plain note replacement would discard rich or unsupported content.",
+          );
         if ("planned_at" in item.changes && target.planned_supported !== true)
           throw new MutationError(
             "INVALID_MUTATION",
@@ -553,7 +580,7 @@ export class TaskWrites {
               "Set anchor dates in a separate request before rule/alarm edits.",
             );
           const r = item.changes.recurrence as Snapshot | null | undefined;
-          if (r && !(r.anchor === "due" ? target.due_at : target.defer_at))
+          if (r && !target[r.anchor + "_at"])
             throw new MutationError(
               "INVALID_MUTATION",
               "Exact local recurrence anchor required.",
@@ -773,20 +800,64 @@ export class TaskWrites {
               "attachment_count",
               "ancestor_repeating",
               "ancestor_auto_complete",
-              "notifications",
             ])
               checks.push(
                 canonical(snapshot[key]) === canonical(baseline[key]),
               );
           for (const key of ["due_at", "defer_at", "planned_at"])
             checks.push(canonical(after[key]) === canonical(baseline[key]));
+          const beforeAlarms = baseline.notifications as Snapshot[];
+          const historyAlarms = after.notifications as Snapshot[];
+          const currentAlarms = continuing.notifications as Snapshot[];
+          checks.push(
+            historyAlarms.length === beforeAlarms.length,
+            currentAlarms.length ===
+              beforeAlarms.filter((n) => n.kind === "due_relative").length,
+          );
+          for (const n of beforeAlarms) {
+            const h = historyAlarms.find((x) => x.kind === n.kind);
+            checks.push(
+              !!h &&
+                typeof h.id === "string" &&
+                h.id !== n.id &&
+                canonical({
+                  ...h,
+                  id: n.id,
+                  task_id: sourceId,
+                  next_fire_at: n.next_fire_at,
+                }) === canonical(n) &&
+                h.next_fire_at === null,
+            );
+            if (n.kind === "due_relative") {
+              const c = currentAlarms.find((x) => x.id === n.id);
+              const fire = new Date(
+                Date.parse(baseline.next_occurrence_at as string) +
+                  (n.relative_offset_minutes as number) * 60000,
+              ).toISOString();
+              checks.push(
+                !!c &&
+                  canonical(c) ===
+                    canonical({
+                      ...n,
+                      initial_fire_at: fire,
+                      next_fire_at: fire,
+                    }),
+              );
+            }
+          }
           const rule = baseline.recurrence as Snapshot;
           checks.push(
-            continuing[rule.anchor === "due" ? "due_at" : "defer_at"] ===
-              baseline.next_occurrence_at,
-            continuing[rule.anchor === "due" ? "defer_at" : "due_at"] === null,
-            continuing.planned_at === null,
-            canonical(continuing.preserved) === canonical(baseline.preserved),
+            continuing[rule.anchor + "_at"] === baseline.next_occurrence_at,
+            ["due", "defer", "planned"].every(
+              (k) => k === rule.anchor || continuing[k + "_at"] === null,
+            ),
+            canonical(continuing.preserved) ===
+              canonical({
+                ...(baseline.preserved as Snapshot),
+                notification_ids: (baseline.notifications as Snapshot[])
+                  .filter((n) => n.kind === "due_relative")
+                  .map((n) => n.id),
+              }),
           );
           if (rule.schedule === "from_completion")
             checks.push(

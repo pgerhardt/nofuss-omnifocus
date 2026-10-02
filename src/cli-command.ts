@@ -9,13 +9,19 @@ export const HELP = {
   usage: [
     "get task|project|tag|folder|perspective ID... [--fields id,name | --view brief|detail]",
     "query tasks|projects|tags|folders|perspectives [--scope inbox|project|library] [--project-id ID] [--fields id,name] [--limit 20] [--cursor TOKEN]",
-    "get|query|overview|doctor --input FILE|-",
+    "get|query|overview|doctor|attachments|sync-status|location|export|plugins|preferences --input FILE|-",
+    "attach|detach task|project --input FILE|- [--apply --request-key KEY]",
+    "trigger sync --input FILE|- [--apply --request-key KEY]",
+    "set_location tag --input FILE|- [--apply --request-key KEY]",
+    "import_outline project --input FILE|- [--apply --request-key KEY]",
     "overview [--waiting-tag-ids ID,ID]",
     "doctor",
     "mcp",
     "create|update|complete|move|reorder|drop|duplicate|delete task|project|tag|folder|perspective --input FILE|- [--apply --request-key KEY]",
     "batch task --input FILE|- [--apply --request-key KEY]",
     "review project --input FILE|- [--apply --request-key KEY]",
+    "uncomplete|undrop|convert_to_project task --input FILE|- [--apply --request-key KEY]",
+    "set_forecast_tag document|set_allows_next_action tag|set_next_review_date project --input FILE|- [--apply --request-key KEY]",
   ],
   documentation: "docs/cli.md",
 };
@@ -81,6 +87,17 @@ export async function parseCommand(argv: string[], read = readInput) {
   const [command, ...rest] = argv;
   if (
     [
+      "import_outline",
+      "set_location",
+      "trigger",
+      "attach",
+      "detach",
+      "set_forecast_tag",
+      "set_allows_next_action",
+      "set_next_review_date",
+      "uncomplete",
+      "undrop",
+      "convert_to_project",
       "create",
       "update",
       "complete",
@@ -92,7 +109,15 @@ export async function parseCommand(argv: string[], read = readInput) {
       "review",
       "batch",
     ].includes(command ?? "") &&
-    ["task", "project", "tag", "folder", "perspective"].includes(rest[0] ?? "")
+    [
+      "task",
+      "project",
+      "tag",
+      "folder",
+      "perspective",
+      "sync",
+      "document",
+    ].includes(rest[0] ?? "")
   ) {
     const options = new Map<string, string>();
     let apply = false;
@@ -141,7 +166,20 @@ export async function parseCommand(argv: string[], read = readInput) {
       },
     };
   }
-  if (!["get", "query", "overview", "doctor"].includes(command ?? "")) {
+  if (
+    ![
+      "get",
+      "query",
+      "overview",
+      "doctor",
+      "attachments",
+      "sync-status",
+      "location",
+      "export",
+      "plugins",
+      "preferences",
+    ].includes(command ?? "")
+  ) {
     if (
       [
         "create",
@@ -327,7 +365,7 @@ export async function runCli(
         if (native.error) errors.push(native.error);
       }
       status = Math.max(0, ...errors.map((e) => exitCode(e.code)));
-      if (command.startsWith("task.") && "items" in data) {
+      if ("items" in data && "reconciliation_required" in data) {
         const result = data as import("./mutation-contract.js").MutationResult;
         status =
           result.reconciliation_required ||

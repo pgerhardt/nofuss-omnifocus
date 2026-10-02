@@ -215,6 +215,15 @@ export class ProjectWrites {
         const target = (resolved.find((r) => r.reference.entity === "project")
           ?.facts.snapshot ?? null) as Snapshot | null;
         if (target) {
+          if (
+            scope === "project.update" &&
+            "note" in wanted &&
+            target.note_plain_safe !== true
+          )
+            throw new MutationError(
+              "INVALID_MUTATION",
+              "Plain note replacement would discard rich or unsupported content.",
+            );
           if (target.repeating === true)
             throw new MutationError(
               "INVALID_MUTATION",
@@ -344,6 +353,12 @@ export class ProjectWrites {
           throw Error("Unusable dispatch identity.");
         const targetId =
           receipt.project_id ?? ("project_id" in args ? args.project_id : null);
+        if (
+          scope !== "project.create" &&
+          "project_id" in args &&
+          targetId !== args.project_id
+        )
+          throw Error("Project receipt differs from exact requested target");
         if (receipt.setter_count === 0 && receipt.error) {
           if (targetId)
             await this.snapshot({ entity: "project", id: targetId }, review);

@@ -168,7 +168,10 @@ function operation(envelope) {
         ? "due"
         : r.anchorDateKey === Task.AnchorDateKey.DeferDate
           ? "defer"
-          : null;
+          : Task.AnchorDateKey.PlannedDate !== undefined &&
+              r.anchorDateKey === Task.AnchorDateKey.PlannedDate
+            ? "planned"
+            : null;
     if (
       !valid ||
       !frequency ||
@@ -1186,6 +1189,19 @@ function operation(envelope) {
             rules: JSON.parse(encoded),
           };
         },
+        icon_color: () => {
+          if (isBuiltin) throw Error("Built-in icon color unavailable");
+          const c = p.iconColor;
+          if (!c) return null;
+          if (c.colorSpace !== ColorSpace.RGB)
+            throw Error("Unsupported native icon color space");
+          return {
+            r: Math.fround(c.red),
+            g: Math.fround(c.green),
+            b: Math.fround(c.blue),
+            a: Math.fround(c.alpha),
+          };
+        },
         rule_aggregation: () => {
           if (isBuiltin)
             fail(
@@ -1457,7 +1473,30 @@ function operation(envelope) {
         source = args.selection ? [] : present(flattenedProjects);
       else if (taxonomy)
         source = present(taxonomy === "tag" ? flattenedTags : flattenedFolders);
-      else if (args.scope === "library") {
+      else if (
+        args.scope === "library" &&
+        args.library_task_ids !== undefined
+      ) {
+        if (
+          args.flagged !== true ||
+          !Array.isArray(args.library_task_ids) ||
+          new Set(args.library_task_ids).size !== args.library_task_ids.length
+        )
+          fail("NATIVE_STRUCTURE", "Invalid native flagged selection");
+        source = args.library_task_ids
+          .map(function (k) {
+            var t = present(Task.byIdentifier(k));
+            if (t === null || identifier(t) !== k)
+              fail(
+                "INVENTORY_CHANGED",
+                "Selected exact task disappeared; restart query",
+              );
+            return t;
+          })
+          .filter(function (t) {
+            return present(t.project) === null;
+          });
+      } else if (args.scope === "library") {
         source = [];
         function collectTasks(nodes) {
           present(nodes).forEach(function (t) {

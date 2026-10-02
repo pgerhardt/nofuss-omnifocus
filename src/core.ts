@@ -1,3 +1,10 @@
+import { NativePrimitives, PrimitiveInputs } from "./native-primitives.js";
+import { OrdinaryTasks, OrdinaryTaskInputs } from "./ordinary-tasks.js";
+import { plugins } from "./plugins.js";
+import { Outlines } from "./outlines.js";
+import { Locations } from "./locations.js";
+import { Sync } from "./sync.js";
+import { Attachments, AttachmentInputs } from "./attachments.js";
 import { PerspectiveWrites, PerspectiveInputs } from "./perspective-writes.js";
 import { ContainerLifecycle, ContainerInputs } from "./container-lifecycle.js";
 import { TaskHierarchy } from "./task-hierarchy.js";
@@ -139,6 +146,25 @@ export class NoFussCore {
     if (WRITE_SCOPES.includes(operation as WriteScope))
       return this.mutate(operation as WriteScope, input);
     switch (operation) {
+      case "preferences":
+        return new NativePrimitives(
+          this.worker,
+          this.writeStateDirectory,
+        ).preferences(input);
+      case "plugins":
+        return plugins(this.worker, input);
+      case "export":
+        return new Outlines(this.worker, this.writeStateDirectory).export(
+          input,
+        );
+      case "location":
+        return new Locations(this.worker, this.writeStateDirectory).read(input);
+      case "sync-status":
+        return new Sync(this.worker, this.writeStateDirectory).read(input);
+      case "attachments":
+        return new Attachments(this.worker, this.writeStateDirectory).read(
+          input,
+        );
       case "get":
         return this.get(input, signal);
       case "query":
@@ -156,6 +182,27 @@ export class NoFussCore {
     }
   }
   async mutate(scope: WriteScope, input: unknown) {
+    if (scope in PrimitiveInputs)
+      return new NativePrimitives(
+        this.worker,
+        this.writeStateDirectory,
+      ).execute(scope as keyof typeof PrimitiveInputs, input);
+    if (scope in OrdinaryTaskInputs)
+      return new OrdinaryTasks(this.worker, this.writeStateDirectory).execute(
+        scope as keyof typeof OrdinaryTaskInputs,
+        input,
+      );
+    if (scope === "project.import_outline")
+      return new Outlines(this.worker, this.writeStateDirectory).import(input);
+    if (scope === "tag.set_location")
+      return new Locations(this.worker, this.writeStateDirectory).write(input);
+    if (scope === "sync.trigger")
+      return new Sync(this.worker, this.writeStateDirectory).trigger(input);
+    if (scope in AttachmentInputs)
+      return new Attachments(this.worker, this.writeStateDirectory).execute(
+        scope as keyof typeof AttachmentInputs,
+        input,
+      );
     if (scope in PerspectiveInputs)
       return new PerspectiveWrites(
         this.worker,

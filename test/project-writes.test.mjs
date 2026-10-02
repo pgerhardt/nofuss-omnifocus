@@ -167,3 +167,47 @@ test("NATIVE-ALGORITHM DOUBLE: repeating project transitions rejected; ordinary 
   );
   assert.equal(f.p.status, f.Project.Status.Done);
 });
+
+test("Rich project note replacement rejects before setters", async (t) => {
+  const f = await setup(t);
+  f.p.task.noteText = { attachments: [{}], attributeRuns: [] };
+  const count = f.counters.setters;
+  const result = await f.writes.execute("project.update", {
+    entity: "project",
+    project_id: f.p.id.primaryKey,
+    changes: { note: "flat" },
+    apply: true,
+    request_key: "rich-note",
+  });
+  assert.equal(result.error.code, "INVALID_MUTATION");
+  assert.equal(f.counters.setters, count);
+});
+
+test("project update rejects an unrelated receipt identity and never replays", async (t) => {
+  const f = await setup(t);
+  const run = f.native.run;
+  let applies = 0;
+  f.native.run = async (op, args) => {
+    const result = await run(op, args);
+    if (op === "project_write_apply") {
+      applies++;
+      return { ...result, project_id: "unrelated" };
+    }
+    return result;
+  };
+  const args = {
+    entity: "project",
+    project_id: f.p.id.primaryKey,
+    changes: { note: "plain" },
+    apply: true,
+    request_key: "wrong-resource",
+  };
+  const result = await f.writes.execute("project.update", args);
+  assert.equal(result.items[0].outcome, "unknown");
+  assert.equal(result.items[0].resource, undefined);
+  assert.equal(
+    (await f.writes.execute("project.update", args)).items[0].outcome,
+    "unknown",
+  );
+  assert.equal(applies, 1);
+});

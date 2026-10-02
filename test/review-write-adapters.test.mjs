@@ -34,6 +34,12 @@ test("PROCESS DOUBLE: one review MCP tool with distinct actions matches executab
         "nofuss_query",
         "nofuss_overview",
         "nofuss_status",
+        "nofuss_attachments",
+        "nofuss_sync_status",
+        "nofuss_location",
+        "nofuss_export",
+        "nofuss_plugins",
+        "nofuss_preferences",
         "nofuss_review",
       ],
     );

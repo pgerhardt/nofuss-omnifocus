@@ -1,6 +1,6 @@
 # Whole-request task batches
 
-Available in beta.3 with explicit host authorization. The default catalog remains four reads.
+Available in beta.4 with explicit host authorization. The default catalog has ten reads.
 
 `nofuss_batch` and CLI `batch task --input FILE|-` use one shared core contract. Input: `entity: "task"`, one `action` (`create`, `update`, `move`, `complete`, `drop`, `delete`), `items` (1–20), and the usual explicit apply / durable request key. Each item has a unique caller `item_key`, scalar fields/references, and optional complete native snapshot preconditions. The scalar operation authorization and `task.batch` authorization are both required. Create/update scheduling, exact move destinations and ordinary leaf completion retain their scalar restrictions. Recurrence/alarms, subtree lifecycle, mixed actions, cross-entity batches, and references to newly created IDs are outside this initial scope.
 

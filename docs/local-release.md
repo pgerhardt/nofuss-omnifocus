@@ -7,13 +7,13 @@ Final public installation documentation remains a separate release step.
 ## Interfaces and permissions
 
 - `nofuss-omnifocus ...` calls the shared core directly.
-- `nofuss-omnifocus mcp` starts the four-tool MCP adapter.
+- `nofuss-omnifocus mcp` starts the ten-read-tool default MCP adapter.
 - `nofuss-omnifocus-mcp` retains equivalent MCP executable behavior. It is not an
   alias for the former npm registry package name.
 
 Node.js 22+, an already running OmniFocus, and native Automation permission are
 required. Direct CLI needs that access in the spawned process/environment. In the
-measured Codex read-only sandbox, MCP completed all four workflows while direct
+measured Codex read-only sandbox, MCP completed the measured workflows while direct
 CLI native execution failed. Both worked in ordinary host-interface tests. Use
 MCP for that measured environment; interface choice elsewhere is client-dependent.
 No universal CLI-first, token-saving or performance claim is made.
@@ -63,11 +63,11 @@ Substitute the absolute paths from the approved artifact record. For Codex MCP:
 [mcp_servers.nofuss]
 command = "/ABSOLUTE/PATH/TO/node"
 args = ["/ABSOLUTE/RELEASE_ROOT/SOURCE_SHA/dist/cli.js", "mcp"]
-enabled_tools = ["nofuss_get", "nofuss_query", "nofuss_overview", "nofuss_status"]
+enabled_tools = ["nofuss_get", "nofuss_query", "nofuss_overview", "nofuss_status", "nofuss_attachments", "nofuss_sync_status", "nofuss_location", "nofuss_export", "nofuss_plugins", "nofuss_preferences"]
 ```
 
 This standalone example describes a future registration; it does not replace an
-existing client's restrictions. This example enables only the four read tools. Controlled write authorization is a separate explicit policy decision. Preserve
+existing client's restrictions. This example enables the ten default read tools. Controlled write authorization is a separate explicit policy decision. Preserve
 all existing restrictions on competing integrations and write/raw-script tools.
 Use an absolute Node executable to avoid client PATH ambiguity. For a native-permitted
 shell, run `RELEASE_ROOT/SOURCE_SHA/bin/nofuss-omnifocus doctor` with Node on PATH.
@@ -81,7 +81,7 @@ configuration hash privately. Preserve that prior immutable artifact.
 
 Activation changes only the reviewed executable/arguments to the new immutable
 artifact. If an existing registration uses different tool names, retain its original
-configuration intact and prepare a separately approved four-read-tool registration;
+configuration intact and prepare a separately approved read-tool registration;
 do not silently broaden or mechanically translate its allowlist. Rollback restores
 the exact prior registration/path/arguments and restrictions, then checks its hash
 and read-only status. Neither operation deletes old artifacts or starts writes.

@@ -27,7 +27,13 @@ export function repeatingFixture(native) {
     history.tags = [...this.tags];
     history.completed = true;
     history.completionDate = new Date();
-    this.dueDate = new Date(next);
+    this[
+      this.repetitionRule.anchorDateKey === "PlannedDate"
+        ? "plannedDate"
+        : this.repetitionRule.anchorDateKey === "DeferDate"
+          ? "deferDate"
+          : "dueDate"
+    ] = new Date(next);
     return history;
   };
   native.events.length = 0;

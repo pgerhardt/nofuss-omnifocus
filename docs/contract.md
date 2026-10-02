@@ -4,9 +4,13 @@ The same read contract is available through the [direct CLI](cli.md) and MCP.
 The core owns validation, native orchestration and domain packing; adapters own
 encoding and transport errors.
 
-This slice registers `nofuss_get`, `nofuss_query`, `nofuss_overview` and
-`nofuss_status`. It is an OmniFocus integration. No writes, sync triggers,
-attachments, perspectives or recurrence are implemented.
+The original four reads remain `nofuss_get`, `nofuss_query`, `nofuss_overview` and
+`nofuss_status`. Development adds `nofuss_attachments`, `nofuss_sync_status`,
+`nofuss_location`, `nofuss_export` and `nofuss_plugins`. Writes are host-policy
+gated; see [safe writes](safe-writes.md), [attachments](native-capabilities.md),
+[native families](native-capabilities.md) and [calendar recurrence](calendar-recurrence.md).
+Older slices below describe their stated scope; the current capability ledger is
+[the parity roadmap](native-capabilities.md).
 
 ## Inputs
 
@@ -802,12 +806,14 @@ is true only for that exact observed version/build, false on another build and n
 without a native observation. The shipped evidence manifest is not a promise that
 every field/value has native coverage. Direct project counts and review fixed use
 the verified scripting supplement despite their absence from OmniJS declarations.
-Unsupported read gates include locations, Inbox-forwarding mutations (distinct from
+Current unsupported gates include Inbox-forwarding mutations (distinct from
 explicit Inbox capture), numeric available-child counts and defer-relative notifications.
+Typed location and bounded native preference reads are supported; see the
+[ordinary closure checkpoint](native-capabilities.md).
 
 ## Authorized mutation boundary
 
-The default read catalog remains unchanged. Explicit host authorization can expose
+The current development catalog has ten default read tools. Explicit host authorization can expose
 supported generic write verbs using the same CLI/core/MCP semantics. See
 [safe writes](safe-writes.md) and [Inbox/parent capture](inbox-parent-capture.md) for
 current supported subsets, scopes, independent readback and no-replay rules.

@@ -124,7 +124,10 @@ function taskOperation(envelope) {
         ? "due"
         : r.anchorDateKey === Task.AnchorDateKey.DeferDate
           ? "defer"
-          : null;
+          : Task.AnchorDateKey.PlannedDate !== undefined &&
+              r.anchorDateKey === Task.AnchorDateKey.PlannedDate
+            ? "planned"
+            : null;
     if (
       !valid ||
       !frequency ||
@@ -156,19 +159,18 @@ function taskOperation(envelope) {
       typeof r?.firstDateAfterDate !== "function"
     )
       return null;
-    var anchor = typed.anchor === "due" ? t.dueDate : t.deferDate;
+    var anchor =
+      typed.anchor === "due"
+        ? t.dueDate
+        : typed.anchor === "defer"
+          ? t.deferDate
+          : t.plannedDate;
     if (anchor === null) return null;
     if (typed.schedule === "regularly")
       return date(r.firstDateAfterDate(anchor));
     // Native evidence: normalize the old clock ON the completion day before advancing.
     // In particular, a spring DST gap on that day changes the clock before the interval.
-    if (
-      t.shouldUseFloatingTimeZone ||
-      typed.weekdays ||
-      typed.month_days ||
-      typed.ordinal_weekday
-    )
-      return null;
+    if (t.shouldUseFloatingTimeZone) return null;
     var base = new Date(completion);
     base.setHours(
       anchor.getHours(),
@@ -239,6 +241,30 @@ function taskOperation(envelope) {
       project_id: null,
       planned_supported: !!sample && plannedSupported(sample),
     };
+  }
+  // Conservative installed-native plain-note profile. Unknown styles fail closed.
+  function plainNoteSafe(t) {
+    try {
+      const text = t.noteText,
+        runs = text.attributeRuns;
+      return (
+        text.attachments.length === 0 &&
+        runs.length <= 100 &&
+        runs.every(
+          (r) =>
+            r.style.namedStyles.length === 0 &&
+            r.style.link === null &&
+            r.style.locallyDefinedAttributes.every(
+              (a) =>
+                (a.key === "font-family" &&
+                  r.style.get(a) === ".AppleSystemUIFont") ||
+                (a.key === "font-style" && r.style.get(a) === "Regular"),
+            ),
+        )
+      );
+    } catch (_) {
+      return false;
+    }
   }
   function facts(ref) {
     if (ref.entity === "inbox") return ref.id === "inbox" ? inboxFacts() : null;
@@ -311,6 +337,7 @@ function taskOperation(envelope) {
         t.containingProject.task.effectiveActive,
       name: t.name,
       note: t.noteText.string,
+      note_plain_safe: plainNoteSafe(t),
       flagged: t.flagged,
       tag_ids: t.tags.map(id).sort(),
       completed: t.completed,
@@ -338,6 +365,34 @@ function taskOperation(envelope) {
         notification_ids: t.notifications.map(id),
       },
     };
+  }
+  function verifiedOccurrenceAlarms(s) {
+    const ns = s.notifications;
+    if (!ns.length) return true;
+    const rule = s.recurrence;
+    if (
+      ns.length !== 1 ||
+      rule.schedule !== "regularly" ||
+      rule.anchor !== "due"
+    )
+      return false;
+    const n = ns[0];
+    return (
+      ["absolute", "due_relative"].includes(n.kind) &&
+      n.task_id === s.id &&
+      !n.is_snoozed &&
+      !n.floating_time_zone &&
+      n.repeat_interval_seconds === 0 &&
+      typeof n.initial_fire_at === "string" &&
+      n.next_fire_at === n.initial_fire_at &&
+      (n.kind === "absolute"
+        ? n.absolute_fire_at === n.initial_fire_at
+        : Number.isInteger(n.relative_offset_minutes) &&
+          n.initial_fire_at ===
+            new Date(
+              Date.parse(s.due_at) + n.relative_offset_minutes * 60000,
+            ).toISOString())
+    );
   }
   function validate(request, plan) {
     if (
@@ -458,7 +513,7 @@ function taskOperation(envelope) {
           r.interval < 1 ||
           r.interval > 1000 ||
           !["regularly", "from_completion"].includes(r.schedule) ||
-          !["due", "defer"].includes(r.anchor) ||
+          !["due", "defer", "planned"].includes(r.anchor) ||
           typeof r.catch_up !== "boolean" ||
           (r.schedule === "from_completion" && r.catch_up))
       )
@@ -484,7 +539,9 @@ function taskOperation(envelope) {
                 : Task.RepetitionScheduleType.FromCompletion,
               r.anchor === "due"
                 ? Task.AnchorDateKey.DueDate
-                : Task.AnchorDateKey.DeferDate,
+                : r.anchor === "defer"
+                  ? Task.AnchorDateKey.DeferDate
+                  : Task.AnchorDateKey.PlannedDate,
               r.catch_up,
             );
       if (
@@ -524,6 +581,15 @@ function taskOperation(envelope) {
       resolved = all.map((ref) => ({ reference: ref, facts: facts(ref) }));
     if (resolved.some((x) => !x.facts))
       fail("INVALID_MUTATION", "Exact native reference missing or wrong type.");
+    if (
+      kind === "task.update" &&
+      "note" in changes &&
+      facts(item.targets[0]).note_plain_safe !== true
+    )
+      fail(
+        "INVALID_MUTATION",
+        "Plain note replacement would discard rich or unsupported content.",
+      );
     var target =
       kind === "task.create" ? null : Task.byIdentifier(item.targets[0].id);
     var createDest = kind === "task.create" ? item.payload.destination : null;
@@ -719,7 +785,11 @@ function taskOperation(envelope) {
         changes.recurrence &&
         !(changes.recurrence.anchor === "due"
           ? target.dueDate
-          : target.deferDate)
+          : changes.recurrence.anchor === "defer"
+            ? target.deferDate
+            : plannedSupported(target)
+              ? target.plannedDate
+              : null)
       )
         fail("INVALID_MUTATION", "Exact local recurrence anchor required");
       if (
@@ -797,16 +867,14 @@ function taskOperation(envelope) {
           tf.ancestor_tentative ||
           tf.assigned_container_id !== null ||
           tf.attachment_count !== 0 ||
-          tf.notifications.length ||
+          !verifiedOccurrenceAlarms(tf) ||
           tf.planned_supported !== true ||
-          tf.planned_at !== null ||
+          ["due", "defer", "planned"].some(function (k) {
+            return k !== rule.anchor && tf[k + "_at"] !== null;
+          }) ||
           tf.floating ||
-          (rule.anchor === "due" ? tf.defer_at !== null : tf.due_at !== null) ||
           typeof tf.next_occurrence_at !== "string" ||
-          !Number.isFinite(Date.parse(tf.next_occurrence_at)) ||
-          (rule.schedule === "regularly" &&
-            Date.parse(rule.anchor === "due" ? tf.due_at : tf.defer_at) <=
-              Date.now())
+          !Number.isFinite(Date.parse(tf.next_occurrence_at))
         )
           fail(
             "REPEATING_COMPLETION_UNSUPPORTED",

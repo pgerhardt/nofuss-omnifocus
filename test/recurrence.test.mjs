@@ -193,3 +193,20 @@ test("NATIVE-ALGORITHM DOUBLE: unsupported recurrence read is explicit unavailab
     assert.equal(row.unavailable.recurrence.code, "RECURRENCE_UNSUPPORTED");
   }
 });
+
+test("NATIVE-ALGORITHM DOUBLE: declared planned anchor writes require exact existing local planned date", async (t) => {
+  const { native, core } = await setup(t);
+  native.task.plannedDate = new Date("2099-02-01T12:00:00Z");
+  const r = await core.mutate("task.update", {
+    task_id: "task",
+    changes: { recurrence: { ...rule, anchor: "planned" } },
+    apply: true,
+    request_key: "planned-rule",
+  });
+  assert.equal(r.items[0].outcome, "applied", JSON.stringify(r));
+  assert.equal(
+    (await core.get({ ids: ["task"], fields: ["recurrence"] })).results[0].task
+      .recurrence.anchor,
+    "planned",
+  );
+});

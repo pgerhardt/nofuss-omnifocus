@@ -318,3 +318,19 @@ test("NATIVE-ALGORITHM DOUBLE: destructive batch response loss never redispatche
     assert.equal(f.native.events.length, n);
   }
 });
+
+test("A rich note in a task batch rejects the whole request before setters", async (t) => {
+  const { core, native, second } = await setup(t);
+  second.noteText = { string: "rich", attachments: [{}], attributeRuns: [] };
+  const result = await core.mutate("task.batch", {
+    action: "update",
+    items: [
+      fields("task"),
+      { item_key: "second", task_id: "second", changes: { note: "flat" } },
+    ],
+    apply: true,
+    request_key: "rich-note",
+  });
+  assert.equal(result.error.code, "INVALID_MUTATION");
+  assert.deepEqual(native.events, []);
+});

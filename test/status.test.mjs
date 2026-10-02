@@ -111,7 +111,7 @@ test("status reports narrow declarations separately from build-bound behavioral 
   );
   assert.equal(status.capabilities.sync_completion, false);
   assert.equal(status.capabilities.writes, false);
-  assert.equal(status.capabilities.locations, false);
+  assert.equal(status.capabilities.locations, true);
   assert.equal(status.sync.state, "unavailable");
   // Metadata is freshly observed. An upgrade never inherits a successful match.
   r.app.buildVersion.versionString = "new-build";
@@ -123,7 +123,7 @@ test("status reports narrow declarations separately from build-bound behavioral 
       (v) => v === "unknown",
     ),
   );
-  assert.ok(JSON.stringify(status).length < 5000);
+  assert.ok(JSON.stringify(status).length < 6000);
   r.app.getTypeScriptDeclarations = () =>
     declarations.replace("Task extends ActiveObject", "Task extends OtherBase");
   assert.equal(

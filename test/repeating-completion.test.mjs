@@ -78,3 +78,95 @@ test("NATIVE-ALGORITHM DOUBLE: missing generated identity and unexpected continu
   assert.equal(replay.reconciliation_required, true);
   assert.equal(missing.native.events.length, n);
 });
+
+test("NATIVE-ALGORITHM DOUBLE: from-completion weekly/monthly selectors use independent native prediction and generated history", async (t) => {
+  for (const ruleString of [
+    "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH",
+    "FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=-1,1,15",
+    "FREQ=MONTHLY;INTERVAL=1;BYDAY=-1FR",
+  ]) {
+    const { native, core } = await setup(t);
+    native.task.repetitionRule.ruleString = ruleString;
+    native.task.repetitionRule.scheduleType = "FromCompletion";
+    const r = await core.mutate("task.complete", args);
+    assert.equal(r.items[0].outcome, "applied", JSON.stringify(r));
+    assert.notEqual(r.items[0].resource.id, "task");
+    assert.deepEqual(await core.mutate("task.complete", args), r);
+  }
+});
+
+test("NATIVE-ALGORITHM DOUBLE: planned-only anchor preserves history and rejects second local anchor", async (t) => {
+  const { native, core } = await setup(t);
+  native.task.plannedDate = native.task.dueDate;
+  native.task.dueDate = null;
+  native.task.repetitionRule.anchorDateKey = "PlannedDate";
+  native.task.repetitionRule.scheduleType = "FromCompletion";
+  const r = await core.mutate("task.complete", args);
+  assert.equal(r.items[0].outcome, "applied", JSON.stringify(r));
+  assert.equal(
+    native.task.plannedDate.toISOString(),
+    "2096-02-29T12:00:00.000Z",
+  );
+  const denied = await setup(t);
+  denied.native.task.plannedDate = denied.native.task.dueDate;
+  denied.native.task.repetitionRule.anchorDateKey = "PlannedDate";
+  assert.equal(
+    (await denied.core.mutate("task.complete", args)).error.code,
+    "REPEATING_COMPLETION_UNSUPPORTED",
+  );
+  assert.equal(denied.native.events.length, 0);
+});
+
+test("NATIVE-ALGORITHM DOUBLE: overdue regular advances one occurrence; catch-up rejects before setter", async (t) => {
+  const { native, core } = await setup(t);
+  native.task.dueDate = new Date("2020-01-31T12:00:00Z");
+  assert.equal(
+    (await core.mutate("task.complete", args)).items[0].outcome,
+    "applied",
+  );
+  const denied = await setup(t);
+  denied.native.task.repetitionRule.catchUpAutomatically = true;
+  assert.equal(
+    (await denied.core.mutate("task.complete", args)).error.code,
+    "REPEATING_COMPLETION_UNSUPPORTED",
+  );
+  assert.equal(denied.native.events.length, 0);
+});
+
+test("NATIVE-ALGORITHM DOUBLE: one ordinary regular due alarm preserves continuing ID or moves absolute to exact history", async (t) => {
+  for (const relative of [true, false]) {
+    const { native, core } = await setup(t);
+    const n = native.task.addNotification(
+      relative ? -600 : new Date("2096-01-31T11:30:00Z"),
+    );
+    n.usesFloatingTimeZone = false;
+    const complete = native.task.markComplete;
+    native.task.markComplete = function () {
+      const h = complete.call(this);
+      const hn = h.addNotification(
+        relative ? n.relativeFireOffset : n.absoluteFireDate,
+      );
+      hn.usesFloatingTimeZone = false;
+      hn.nextFireDate = null;
+      if (relative)
+        n.initialFireDate = n.nextFireDate = new Date(
+          this.dueDate.getTime() - 600000,
+        );
+      else this.notifications = [];
+      return h;
+    };
+    native.events.length = 0;
+    const r = await core.mutate("task.complete", args);
+    assert.equal(r.items[0].outcome, "applied", JSON.stringify(r));
+    assert.deepEqual(await core.mutate("task.complete", args), r);
+  }
+  const denied = await setup(t);
+  const n = denied.native.task.addNotification(-600);
+  n.repeatInterval = 60;
+  denied.native.events.length = 0;
+  assert.equal(
+    (await denied.core.mutate("task.complete", args)).error.code,
+    "REPEATING_COMPLETION_UNSUPPORTED",
+  );
+  assert.equal(denied.native.events.length, 0);
+});

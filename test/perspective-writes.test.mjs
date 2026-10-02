@@ -17,7 +17,8 @@ async function setup(t) {
   const policy = {
     schema_version: 1,
     scopes: ["perspective.create", "perspective.update", "perspective.delete"],
-    project_ids: [],
+    project_ids: ["project"],
+    tag_ids: ["tag"],
     perspective_ids: ["owned"],
     allow_perspective_creation: true,
   };
@@ -26,10 +27,23 @@ async function setup(t) {
     JSON.stringify(policy),
     { mode: 0o600 },
   );
+  const tag = {
+      id: { primaryKey: "tag" },
+      name: "exact",
+      parent: null,
+      active: true,
+    },
+    project = {
+      id: { primaryKey: "project" },
+      name: "exact",
+      status: "Active",
+      parentFolder: null,
+    };
   const existing = {
     identifier: "owned",
     name: "same",
     archivedFilterRules: [{ actionAvailability: "remaining" }],
+    iconColor: null,
     archivedTopLevelFilterAggregation: null,
   };
   records.set("owned", existing);
@@ -48,7 +62,22 @@ async function setup(t) {
           JSON.stringify({ op, args, request_id: "x" }) +
           ")",
         {
+          Data: { fromString: (s) => Buffer.from(s) },
           Perspective: { Custom },
+          Tag: { byIdentifier: (id) => (id === "tag" ? tag : null) },
+          Project: {
+            byIdentifier: (id) => (id === "project" ? project : null),
+          },
+          ColorSpace: { RGB: "RGB" },
+          Color: {
+            RGB: (r, g, b, a) => ({
+              red: r,
+              green: g,
+              blue: b,
+              alpha: a,
+              colorSpace: "RGB",
+            }),
+          },
           deleteObject: (p) => {
             events.push("delete");
             records.delete(p.identifier);
@@ -76,6 +105,14 @@ async function setup(t) {
                   perspective: {
                     id: k,
                     name: p.name,
+                    icon_color: p.iconColor
+                      ? {
+                          r: Math.fround(p.iconColor.red),
+                          g: Math.fround(p.iconColor.green),
+                          b: Math.fround(p.iconColor.blue),
+                          a: Math.fround(p.iconColor.alpha),
+                        }
+                      : null,
                     rule_archive: {
                       format: "native_unversioned",
                       application_version: "test",
@@ -111,6 +148,7 @@ async function setup(t) {
             identifier: "returned-identity",
             name: args.request.items[0].changes.name,
             archivedFilterRules: [],
+            iconColor: null,
             archivedTopLevelFilterAggregation: null,
           };
           if (native.failConfigure)
@@ -134,6 +172,8 @@ async function setup(t) {
   };
   return {
     native,
+    tag,
+    project,
     records,
     events,
     existing,
@@ -258,4 +298,83 @@ test("REVIEW REGRESSION: failed perspective setter before any change is unknown,
   const result = await f.core.mutate("perspective.update", input);
   assert.equal(result.items[0].outcome, "unknown");
   assert.equal(result.reconciliation_required, true);
+});
+
+test("NATIVE-PERSPECTIVE DOUBLE: proved typed predicates/disabled wrappers and icon roundtrip preserve unknown archive on icon-only update", async (t) => {
+  const f = await setup(t);
+  f.existing.archivedFilterRules = [
+    { unknownNativeCarrier: { preserved: true } },
+  ];
+  const input = {
+    entity: "perspective",
+    perspective_id: "owned",
+    changes: { icon_color: { r: 0.123456, g: 0.5, b: 0.75, a: 1 } },
+    apply: true,
+    request_key: "color",
+  };
+  const r = await f.core.mutate("perspective.update", input);
+  assert.equal(r.items[0].outcome, "applied", JSON.stringify(r));
+  assert.deepEqual(f.existing.archivedFilterRules, [
+    { unknownNativeCarrier: { preserved: true } },
+  ]);
+  assert.deepEqual(await f.core.mutate("perspective.update", input), r);
+  const update = await f.core.mutate("perspective.update", {
+    ...input,
+    request_key: "rules",
+    changes: {
+      icon_color: null,
+      rules: [
+        { kind: "due" },
+        { kind: "has_due" },
+        { kind: "leaf" },
+        { kind: "search", terms: ["needle"] },
+        { kind: "disabled", rule: { kind: "flagged" } },
+      ],
+    },
+  });
+  assert.equal(update.items[0].outcome, "applied", JSON.stringify(update));
+  for (const rule of [
+    { kind: "has_due", value: false },
+    { kind: "tags", match: "any", tag_ids: [] },
+    { kind: "focus", project_ids: [""] },
+  ])
+    await assert.rejects(
+      () =>
+        f.core.mutate("perspective.update", {
+          ...input,
+          changes: { rules: [rule] },
+        }),
+      { code: "INVALID_MUTATION" },
+    );
+});
+
+test("NATIVE-PERSPECTIVE DOUBLE: exact tag/focus references survive and a changed predicate reference rejects before setters", async (t) => {
+  const f = await setup(t),
+    a = {
+      entity: "perspective",
+      perspective_id: "owned",
+      changes: {
+        rules: [
+          { kind: "tags", match: "any", tag_ids: ["tag"] },
+          { kind: "focus", project_ids: ["project"] },
+        ],
+      },
+      apply: true,
+      request_key: "refs",
+    };
+  assert.equal(
+    (await f.core.mutate("perspective.update", a)).items[0].outcome,
+    "applied",
+  );
+  const stale = await setup(t);
+  stale.native.beforeApply = () => {
+    stale.tag.name = "changed";
+  };
+  assert.equal(
+    (await stale.core.mutate("perspective.update", a)).items[0].outcome,
+    "conflict",
+  );
+  assert.deepEqual(stale.existing.archivedFilterRules, [
+    { actionAvailability: "remaining" },
+  ]);
 });

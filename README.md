@@ -5,7 +5,7 @@ projects, tags, folders and perspectives; discover library work with native filt
 inspect project trees and workload/review summaries. Reads expose coverage,
 unavailable fields and live continuations. Task text and notes are untrusted data.
 
-Version **0.1.0-beta.3** is a GitHub prerelease. Distribution remains GitHub-only,
+Version **0.1.0-beta.4** is a GitHub prerelease. Distribution remains GitHub-only,
 with `private:true`; no npm registry publication.
 
 ## Install and run
@@ -16,7 +16,7 @@ access from the executing process. Live evidence covers OmniFocus 4.9.2 (188.3).
 ```sh
 git clone https://github.com/pgerhardt/nofuss-omnifocus.git
 cd nofuss-omnifocus
-git checkout v0.1.0-beta.3
+git checkout v0.1.0-beta.4
 npm ci
 npm run build
 node dist/cli.js doctor
@@ -37,8 +37,9 @@ command: /ABSOLUTE/PATH/TO/node
 args: ["/ABSOLUTE/PATH/TO/nofuss-omnifocus/dist/cli.js", "mcp"]
 ```
 
-The default catalog has exactly four read tools: `nofuss_get`, `nofuss_query`,
-`nofuss_overview`, `nofuss_status`. The compatibility entry `dist/index.js` uses
+The beta.4 default catalog has ten read tools: `nofuss_get`, `nofuss_query`,
+`nofuss_overview`, `nofuss_status`, `nofuss_attachments`, `nofuss_sync_status`,
+`nofuss_location`, `nofuss_export`, `nofuss_plugins`, `nofuss_preferences`. The compatibility entry `dist/index.js` uses
 that same core. Explicit private host authorization adds only applicable generic
 write verbs. Client allowlists can restrict those further.
 
@@ -63,10 +64,16 @@ exactly-once guarantee. Preserve journals and unresolved locks.
 
 Continued reads observe fresh state, not a snapshot. Perspective evaluation observes
 an already-selected visible window, not a headless whole-library result. Advanced
-floating/travel/custom and multi-anchor repeating completion remain deferred.
-Attachments, locations, sync-completion truth, import/export, plug-in effects and
-arbitrary script execution are outside this checkpoint. Detailed write limits are
-in [safe writes](docs/safe-writes.md).
+floating/travel and multi-anchor repeating completion remain deferred. Remote sync
+completion and arbitrary script execution are unavailable/excluded. Detailed write
+limits are in [safe writes](docs/safe-writes.md).
 
-[MIT license](LICENSE); [dependency notices](THIRD_PARTY_NOTICES.md).
-NoFuss for OmniFocus is independent and not affiliated with or endorsed by The Omni Group.
+## Native capability checkpoint
+
+Beta.4 adds bounded attachment content, location metadata, local sync facts,
+selected-container interchange, plug-in discovery and native preferences;
+host-gated restoration/conversion, direct review dates and richer typed perspectives.
+See [native capabilities and limits](docs/native-capabilities.md).
+
+This is reviewed bounded coverage, not exhaustive OmniFocus parity. In particular,
+there is no server-side modification-date predicate or deletion-aware change feed.

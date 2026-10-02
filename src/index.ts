@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import { PrimitiveInputs, PreferencesInput } from "./native-primitives.js";
+import { OrdinaryTaskInputs } from "./ordinary-tasks.js";
+import { PluginInput, PluginOutput } from "./plugins.js";
+import { ExportInput, ImportInput } from "./outlines.js";
+import { LocationReadInput, LocationWriteInput } from "./locations.js";
+import { SyncInput, SyncOutput, SyncTriggerInput } from "./sync.js";
+import { AttachmentInputs, AttachmentReadInput } from "./attachments.js";
 import { PerspectiveInputs } from "./perspective-writes.js";
 import { ContainerInputs } from "./container-lifecycle.js";
 import { TaskReorderInput } from "./task-hierarchy.js";
@@ -100,14 +107,87 @@ server.registerTool(
   "nofuss_status",
   {
     description:
-      "Observe build/readiness, implemented operations, fresh native declaration support and build-scoped verification/gaps. Declarations do not prove behavior. No private traces, sync trigger or claim of sync completion.",
+      "Observe build/readiness, implemented operations, fresh native declaration support and build-scoped verification/gaps. Declarations do not prove behavior. No private traces or claim of sync completion. The separate host-gated trigger acknowledges dispatch only.",
     inputSchema: StatusInput,
     outputSchema: StatusOutput,
     annotations,
   },
   (_args, extra) => guarded(() => service.status(extra.signal)),
 );
+server.registerTool(
+  "nofuss_attachments",
+  {
+    description:
+      "List exact task/project embedded attachments or read one unique content descriptor. Handles are content hashes, never persistent occurrence IDs. Duplicate descriptors reject; no linked paths followed; bounded 16 KiB files / 20 KiB inventory.",
+    inputSchema: AttachmentReadInput,
+    annotations,
+  },
+  (args, extra) =>
+    guarded(() => service.execute("attachments", args, extra.signal)),
+);
+server.registerTool(
+  "nofuss_sync_status",
+  {
+    description:
+      "Native local syncing, last sync date and error presence. Last sync date is not interpreted as last success. Remote/all-device completion, pending local changes and attempts are unavailable.",
+    inputSchema: SyncInput,
+    outputSchema: SyncOutput,
+    annotations,
+  },
+  (args, extra) =>
+    guarded(() => service.execute("sync-status", args, extra.signal)),
+);
+server.registerTool(
+  "nofuss_location",
+  {
+    description:
+      "Exact tag location metadata, radius in kilometers, arrival/departure. OS permission and notification delivery remain unavailable; no user location lookup or geocoding.",
+    inputSchema: LocationReadInput,
+    annotations,
+  },
+  (args, extra) =>
+    guarded(() => service.execute("location", args, extra.signal)),
+);
+server.registerTool(
+  "nofuss_export",
+  {
+    description:
+      "Bounded complete exact-project/selected-project/folder native TaskPaper or explicitly lossy NoFuss OPML outline export. Returns string, identity inventory and fidelity warnings; no arbitrary path or database dump.",
+    inputSchema: ExportInput,
+    annotations,
+  },
+  (args, extra) => guarded(() => service.execute("export", args, extra.signal)),
+);
+server.registerTool(
+  "nofuss_plugins",
+  {
+    description:
+      "List bounded exact installed Omni Automation plug-in/action identifiers and metadata. Invocation intentionally excluded: arbitrary third-party side effects cannot satisfy NFO-9 reconciliation.",
+    inputSchema: PluginInput,
+    outputSchema: PluginOutput,
+    annotations,
+  },
+  (args, extra) =>
+    guarded(() => service.execute("plugins", args, extra.signal)),
+);
+server.registerTool(
+  "nofuss_preferences",
+  {
+    description:
+      "Exact native Forecast tag preference and optional tag allows-next-action boolean; no generic preference dictionary.",
+    inputSchema: PreferencesInput,
+    annotations,
+  },
+  (args, extra) =>
+    guarded(() => service.execute("preferences", args, extra.signal)),
+);
 const writeInputs = {
+  ...PrimitiveInputs,
+  ...OrdinaryTaskInputs,
+  "project.import_outline": ImportInput,
+  "tag.set_location": LocationWriteInput,
+  "sync.trigger": SyncTriggerInput,
+  ...AttachmentInputs,
   ...TaskInputs,
   "task.reorder": TaskReorderInput,
   ...ProjectInputs,

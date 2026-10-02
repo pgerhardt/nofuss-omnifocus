@@ -14,52 +14,176 @@ function run(argv) {
   }
   var source = ObjC.unwrap(
     $.NSString.stringWithContentsOfFileEncodingError(
-      [
-        "perspective_write_facts",
-        "perspective_write_validate",
-        "perspective_write_apply",
-      ].includes(envelope.op)
-        ? argv[0].replace(/operation\.js$/, "perspective-operation.js")
-        : [
-              "container_lifecycle_facts",
-              "container_lifecycle_apply",
-              "container_lifecycle_absence",
-              "container_lifecycle_order",
-            ].includes(envelope.op)
-          ? argv[0].replace(
-              /operation\.js$/,
-              "container-lifecycle-operation.js",
-            )
-          : [
-                "task_hierarchy_facts",
-                "task_hierarchy_apply",
-                "task_hierarchy_absence",
-                "task_hierarchy_order",
-              ].includes(envelope.op)
-            ? argv[0].replace(/operation\.js$/, "task-hierarchy-operation.js")
-            : ["task_write_facts", "task_write_apply"].includes(envelope.op)
-              ? argv[0].replace(/operation\.js$/, "task-operation.js")
-              : ["project_write_facts", "project_write_apply"].includes(
-                    envelope.op,
-                  )
-                ? argv[0].replace(/operation\.js$/, "project-operation.js")
-                : ["taxonomy_write_facts", "taxonomy_write_apply"].includes(
-                      envelope.op,
-                    )
-                  ? argv[0].replace(/operation\.js$/, "taxonomy-operation.js")
-                  : argv[0],
+      envelope.op.startsWith("primitive_")
+        ? argv[0].replace(/operation\.js$/, "primitive-operation.js")
+        : envelope.op.startsWith("ordinary_task_")
+          ? argv[0].replace(/operation\.js$/, "ordinary-task-operation.js")
+          : envelope.op === "plugin_list"
+            ? argv[0].replace(/operation\.js$/, "plugin-operation.js")
+            : [
+                  "outline_export",
+                  "outline_parse_opml",
+                  "import_facts",
+                  "import_readback",
+                  "import_apply",
+                ].includes(envelope.op)
+              ? argv[0].replace(/operation\.js$/, "outline-operation.js")
+              : ["location_facts", "location_apply"].includes(envelope.op)
+                ? argv[0].replace(/operation\.js$/, "location-operation.js")
+                : ["sync_facts", "sync_apply"].includes(envelope.op)
+                  ? argv[0].replace(/operation\.js$/, "sync-operation.js")
+                  : ["attachment_facts", "attachment_apply"].includes(
+                        envelope.op,
+                      )
+                    ? argv[0].replace(
+                        /operation\.js$/,
+                        "attachment-operation.js",
+                      )
+                    : [
+                          "perspective_write_facts",
+                          "perspective_write_validate",
+                          "perspective_write_apply",
+                        ].includes(envelope.op)
+                      ? argv[0].replace(
+                          /operation\.js$/,
+                          "perspective-operation.js",
+                        )
+                      : [
+                            "container_lifecycle_facts",
+                            "container_lifecycle_apply",
+                            "container_lifecycle_absence",
+                            "container_lifecycle_order",
+                          ].includes(envelope.op)
+                        ? argv[0].replace(
+                            /operation\.js$/,
+                            "container-lifecycle-operation.js",
+                          )
+                        : [
+                              "task_hierarchy_facts",
+                              "task_hierarchy_apply",
+                              "task_hierarchy_absence",
+                              "task_hierarchy_order",
+                            ].includes(envelope.op)
+                          ? argv[0].replace(
+                              /operation\.js$/,
+                              "task-hierarchy-operation.js",
+                            )
+                          : ["task_write_facts", "task_write_apply"].includes(
+                                envelope.op,
+                              )
+                            ? argv[0].replace(
+                                /operation\.js$/,
+                                "task-operation.js",
+                              )
+                            : [
+                                  "project_write_facts",
+                                  "project_write_apply",
+                                ].includes(envelope.op)
+                              ? argv[0].replace(
+                                  /operation\.js$/,
+                                  "project-operation.js",
+                                )
+                              : [
+                                    "taxonomy_write_facts",
+                                    "taxonomy_write_apply",
+                                  ].includes(envelope.op)
+                                ? argv[0].replace(
+                                    /operation\.js$/,
+                                    "taxonomy-operation.js",
+                                  )
+                                : argv[0],
       $.NSUTF8StringEncoding,
       null,
     ),
   );
   if (typeof source !== "string") throw new Error("Missing native operation");
+  if (
+    ["sync_facts", "sync_apply", "location_facts", "location_apply"].includes(
+      envelope.op,
+    )
+  )
+    return eval("(" + source + ")")(envelope);
   function evaluate(request) {
+    if (request.op.startsWith("primitive_")) {
+      request.native_document_id = of.defaultDocument.id();
+      var ref =
+        request.args.reference || request.args.request?.items[0]?.targets[0];
+      if (ref?.entity === "project") {
+        var p = of.defaultDocument.flattenedProjects.byId(ref.id),
+          v = p.reviewInterval();
+        request.scripting_review_interval = {
+          id: p.id(),
+          unit: v.unit,
+          steps: v.steps,
+          fixed: v.fixed,
+        };
+      }
+    }
+
+    if (
+      request.op === "query" &&
+      request.args.entity === "task" &&
+      request.args.scope === "library" &&
+      request.args.flagged === true
+    ) {
+      // Native local-flag selection avoids walking every project for a sparse filter.
+      // Projection and every requested predicate remain independently checked in OmniJS.
+      var selectedIds = of.defaultDocument.flattenedTasks
+        .whose({ flagged: true })
+        .id();
+      if (
+        !Array.isArray(selectedIds) ||
+        selectedIds.some((k) => typeof k !== "string" || !k) ||
+        new Set(selectedIds).size !== selectedIds.length
+      )
+        throw Error("Native flagged identity selection unavailable");
+      request.args = { ...request.args, library_task_ids: selectedIds };
+    }
     var literal = JSON.stringify(JSON.stringify(request))
       .replace(/\u2028/g, "\\u2028")
       .replace(/\u2029/g, "\\u2029");
     return of.evaluateJavascript(
       "(" + source + ")(JSON.parse(" + literal + "))",
     );
+  }
+  if (
+    envelope.op === "ordinary_task_apply" &&
+    envelope.args.request.operation.kind === "task.undrop"
+  ) {
+    var checked = JSON.parse(
+      evaluate({ ...envelope, op: "ordinary_task_validate" }),
+    );
+    if (checked.error) return JSON.stringify(checked);
+    var receipt = checked.result;
+    if (!receipt.error) {
+      try {
+        var t = of.defaultDocument.flattenedTasks.byId(receipt.resource_id);
+        if (t.id() !== receipt.resource_id || !t.dropped() || t.completed())
+          throw Error("Native restore state changed");
+        var cp = t.containingProject(),
+          currentProject = null;
+        if (cp) {
+          var documentContainer = false;
+          try {
+            documentContainer = cp.class() === "document";
+          } catch (_) {}
+          if (!documentContainer) currentProject = cp.id();
+        }
+        if (
+          currentProject !==
+          envelope.args.plan.items[0].payload.baseline.rows[0].project_id
+        )
+          throw Error("Native restore container changed");
+        receipt.setter_count = 1;
+        of.markIncomplete(t);
+      } catch (e) {
+        receipt.error = {
+          code: "NATIVE_TASK_UNCERTAIN",
+          message: "Scripting restoration failed; reconcile exact task",
+        };
+      }
+    }
+    return JSON.stringify({ request_id: envelope.request_id, result: receipt });
   }
   if (
     envelope.op === "perspective_write_apply" &&

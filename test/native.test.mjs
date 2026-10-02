@@ -764,3 +764,31 @@ test("notification minute normalization is version-independent, fractional and u
     "NATIVE_NOTIFICATION_KIND",
   );
 });
+test("native sparse flagged selection rechecks exact identities and predicates without traversing the library", async () => {
+  const a = task("a", { flagged: true }),
+    changed = task("changed", { flagged: false }),
+    root = task("root", { flagged: true, project: {} });
+  const native = reader([a, changed, root]);
+  const args = {
+    entity: "task",
+    scope: "library",
+    flagged: true,
+    library_task_ids: ["a", "changed", "root"],
+    fields: ["name"],
+    limit: 20,
+  };
+  const result = await native.run("query", args);
+  assert.deepEqual(
+    result.items.map((t) => t.id),
+    ["a"],
+  );
+  assert.equal(result.has_more, false);
+  await assert.rejects(
+    () => native.run("query", { ...args, library_task_ids: ["missing"] }),
+    (e) => e.code === "INVENTORY_CHANGED",
+  );
+  await assert.rejects(
+    () => native.run("query", { ...args, library_task_ids: ["a", "a"] }),
+    (e) => e.code === "NATIVE_STRUCTURE",
+  );
+});

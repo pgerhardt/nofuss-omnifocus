@@ -48,6 +48,30 @@ function projectOperation(envelope) {
     if (!s) fail("INVALID_MUTATION", "Unknown project status");
     return s;
   }
+  // Conservative installed-native plain-note profile. Unknown styles fail closed.
+  function plainNoteSafe(t) {
+    try {
+      const text = t.noteText,
+        runs = text.attributeRuns;
+      return (
+        text.attachments.length === 0 &&
+        runs.length <= 100 &&
+        runs.every(
+          (r) =>
+            r.style.namedStyles.length === 0 &&
+            r.style.link === null &&
+            r.style.locallyDefinedAttributes.every(
+              (a) =>
+                (a.key === "font-family" &&
+                  r.style.get(a) === ".AppleSystemUIFont") ||
+                (a.key === "font-style" && r.style.get(a) === "Regular"),
+            ),
+        )
+      );
+    } catch (_) {
+      return false;
+    }
+  }
   function facts(ref) {
     if (ref.entity === "folder") {
       const f = Folder.byIdentifier(ref.id);
@@ -83,6 +107,7 @@ function projectOperation(envelope) {
       folder_id: id(p.parentFolder),
       name: p.name,
       note: p.note,
+      note_plain_safe: plainNoteSafe(p.task),
       flagged: p.flagged,
       tag_ids: p.tags.map(id).sort(),
       status: status(p),
@@ -345,6 +370,15 @@ function projectOperation(envelope) {
         (typeof change.note !== "string" || change.note.length > 2048)
       )
         fail("INVALID_MUTATION", "Invalid note");
+      if (
+        kind === "project.update" &&
+        "note" in change &&
+        target.f.note_plain_safe !== true
+      )
+        fail(
+          "INVALID_MUTATION",
+          "Plain note replacement would discard rich or unsupported content.",
+        );
       if ("flagged" in change && typeof change.flagged !== "boolean")
         fail("INVALID_MUTATION", "Invalid flag");
       if (

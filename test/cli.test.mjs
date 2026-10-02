@@ -97,7 +97,18 @@ test("core, executable CLI and real SDK MCP adapter return equivalent domain fac
     await client.connect(transport);
     assert.deepEqual(
       (await client.listTools()).tools.map((t) => t.name),
-      ["nofuss_get", "nofuss_query", "nofuss_overview", "nofuss_status"],
+      [
+        "nofuss_get",
+        "nofuss_query",
+        "nofuss_overview",
+        "nofuss_status",
+        "nofuss_attachments",
+        "nofuss_sync_status",
+        "nofuss_location",
+        "nofuss_export",
+        "nofuss_plugins",
+        "nofuss_preferences",
+      ],
     );
     const core = new NoFussCore(fixture(), build);
     for (const [command, input] of requests) {

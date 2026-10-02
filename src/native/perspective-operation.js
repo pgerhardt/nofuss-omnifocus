@@ -15,9 +15,42 @@ function perspectiveOperation(envelope) {
     e.code = code;
     throw e;
   };
+  function color(c) {
+    if (!c) return null;
+    if (c.colorSpace !== ColorSpace.RGB)
+      fail("INVALID_MUTATION", "Unsupported native icon color space");
+    return {
+      r: Math.fround(c.red),
+      g: Math.fround(c.green),
+      b: Math.fround(c.blue),
+      a: Math.fround(c.alpha),
+    };
+  }
   function facts(r) {
     if (r.entity === "perspective_inventory")
       return { ids: Perspective.Custom.all.map((p) => p.identifier).sort() };
+    if (r.entity === "tag") {
+      const t = Tag.byIdentifier(r.id);
+      return t
+        ? {
+            id: t.id.primaryKey,
+            name: t.name,
+            parent_id: t.parent?.id.primaryKey ?? null,
+            active: t.active,
+          }
+        : null;
+    }
+    if (r.entity === "project") {
+      const p = Project.byIdentifier(r.id);
+      return p
+        ? {
+            id: p.id.primaryKey,
+            name: p.name,
+            status: String(p.status),
+            folder_id: p.parentFolder?.id.primaryKey ?? null,
+          }
+        : null;
+    }
     const p = Perspective.Custom.byIdentifier(r.id);
     if (!p) return null;
     const f = {
@@ -25,8 +58,9 @@ function perspectiveOperation(envelope) {
       name: p.name,
       rules: p.archivedFilterRules,
       aggregation: p.archivedTopLevelFilterAggregation,
+      icon_color: color(p.iconColor),
     };
-    if (JSON.stringify(f).length > 16000)
+    if (Data.fromString(JSON.stringify(f)).length > 16000)
       fail("INVALID_MUTATION", "Perspective snapshot exceeds 16 KiB");
     return f;
   }
@@ -40,6 +74,67 @@ function perspectiveOperation(envelope) {
       return { actionAvailability: r.value };
     if (r.kind === "flagged" && Object.keys(r).join(",") === "kind")
       return { actionStatus: "flagged" };
+    if (
+      (r.kind === "tags" || r.kind === "focus") &&
+      Object.keys(r).sort().join(",") ===
+        (r.kind === "tags" ? "kind,match,tag_ids" : "kind,project_ids")
+    ) {
+      const ids = r.kind === "tags" ? r.tag_ids : r.project_ids,
+        entity = r.kind === "tags" ? "tag" : "project";
+      if (
+        !Array.isArray(ids) ||
+        !ids.length ||
+        ids.length > 10 ||
+        new Set(ids).size !== ids.length ||
+        ids.some(
+          (id) =>
+            typeof id !== "string" ||
+            !id ||
+            !facts({ entity, id }) ||
+            !a.request.items[0].references.some(
+              (r) => r.entity === entity && r.id === id,
+            ) ||
+            !a.policy[entity === "tag" ? "tag_ids" : "project_ids"].includes(
+              id,
+            ),
+        )
+      )
+        fail("INVALID_MUTATION", "Exact predicate references required");
+      if (r.kind === "tags" && !["all", "any"].includes(r.match))
+        fail("INVALID_MUTATION", "Tag match");
+      return {
+        [r.kind === "focus"
+          ? "actionWithinFocus"
+          : r.match === "all"
+            ? "actionHasAllOfTags"
+            : "actionHasAnyOfTags"]: ids,
+      };
+    }
+    if (
+      ["due", "has_due", "leaf"].includes(r.kind) &&
+      Object.keys(r).join(",") === "kind"
+    )
+      return r.kind === "due"
+        ? { actionStatus: "due" }
+        : r.kind === "has_due"
+          ? { actionHasDueDate: true }
+          : { actionIsLeaf: true };
+    if (
+      r.kind === "search" &&
+      Object.keys(r).sort().join(",") === "kind,terms" &&
+      Array.isArray(r.terms) &&
+      r.terms.length >= 1 &&
+      r.terms.length <= 10 &&
+      r.terms.every(
+        (x) => typeof x === "string" && x.length >= 1 && x.length <= 256,
+      )
+    )
+      return { actionMatchingSearch: r.terms };
+    if (
+      r.kind === "disabled" &&
+      Object.keys(r).sort().join(",") === "kind,rule"
+    )
+      return { disabledRule: rule(r.rule, depth + 1) };
     if (
       r.kind === "group" &&
       ["all", "any", "none"].includes(r.aggregation) &&
@@ -106,6 +201,16 @@ function perspectiveOperation(envelope) {
       !["all", "any", "none"].includes(c.aggregation)
     )
       fail("INVALID_MUTATION", "Aggregation");
+    if (
+      c.icon_color !== undefined &&
+      c.icon_color !== null &&
+      (typeof c.icon_color !== "object" ||
+        Object.keys(c.icon_color).sort().join(",") !== "a,b,g,r" ||
+        Object.values(c.icon_color).some(
+          (x) => typeof x !== "number" || !Number.isFinite(x) || x < 0 || x > 1,
+        ))
+    )
+      fail("INVALID_MUTATION", "Icon RGBA bound");
     if (c.rules !== undefined) {
       if (!Array.isArray(c.rules) || !c.rules.length || c.rules.length > 10)
         fail("INVALID_MUTATION", "Rule count");
@@ -163,12 +268,14 @@ function perspectiveOperation(envelope) {
       receipt.setter_count++;
       deleteObject(p);
     } else {
-      for (const k of ["name", "rules", "aggregation"])
+      for (const k of ["name", "rules", "aggregation", "icon_color"])
         if (item.changes[k] !== undefined) {
           const v = item.changes[k];
           receipt.setter_count++;
           if (k === "name") p.name = v;
           else if (k === "rules") p.archivedFilterRules = v.map((x) => rule(x));
+          else if (k === "icon_color")
+            p.iconColor = v ? Color.RGB(v.r, v.g, v.b, v.a) : null;
           else p.archivedTopLevelFilterAggregation = v;
         }
     }

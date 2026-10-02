@@ -148,7 +148,7 @@ test("NATIVE-ALGORITHM DOUBLE: perspective names use owner-bound Unicode continu
   });
   assert.equal(next.results[0].perspective.truncated.name.offset, 100);
 });
-test("PROCESS DOUBLE: actual CLI/MCP perspective schemas preserve four reads and archive representation", async (t) => {
+test("PROCESS DOUBLE: actual CLI/MCP perspective schemas preserve declared reads and archive representation", async (t) => {
   const { mkdtemp, rm } = await import("node:fs/promises"),
     { tmpdir } = await import("node:os"),
     { join } = await import("node:path"),
@@ -195,7 +195,18 @@ test("PROCESS DOUBLE: actual CLI/MCP perspective schemas preserve four reads and
     await client.connect(transport);
     assert.deepEqual(
       (await client.listTools()).tools.map((t) => t.name),
-      ["nofuss_get", "nofuss_query", "nofuss_overview", "nofuss_status"],
+      [
+        "nofuss_get",
+        "nofuss_query",
+        "nofuss_overview",
+        "nofuss_status",
+        "nofuss_attachments",
+        "nofuss_sync_status",
+        "nofuss_location",
+        "nofuss_export",
+        "nofuss_plugins",
+        "nofuss_preferences",
+      ],
     );
     const r = await client.callTool({
       name: "nofuss_get",

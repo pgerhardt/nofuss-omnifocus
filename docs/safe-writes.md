@@ -31,27 +31,27 @@ A minimal Inbox create/update policy is:
 }
 ```
 
-`allow_inbox` defaults false and covers only supported create/scalar-update operations.
+`allow_inbox` defaults false and covers supported Inbox capture/scalar-update and the explicitly bounded ordinary restoration/conversion profiles.
 Project scopes use exact `project_ids`. Other exact-object scopes use `task_ids`,
 `tag_ids`, `folder_ids`, `perspective_ids`; project/tag/folder/perspective creation requires its corresponding
 `allow_project_creation`, `allow_tag_creation`, `allow_folder_creation`, `allow_perspective_creation` boolean plus
-operation scope. None defaults true. Referenced destinations and tags resolve by exact
+operation scope. Forecast preference mutation also requires `allow_preferences:true`. None defaults true. Referenced destinations and tags resolve by exact
 ID and must satisfy the operation's own authorization and eligibility checks. No
 wildcard, name targeting or request-supplied authorization exists.
 
 ## Supported subsets
 
-| Area                 | Supported scope                                                                                                                                    | Exclusions                                                                                                       |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Task capture/scalars | Exact project, explicit Inbox or exact ordinary parent; name/note/flag/tag-set; nullable due/defer/planned dates and nonnegative integer estimates | Unsafe parents, tentative containment; Inbox recurrence/alarm edits                                              |
-| Task organization    | Move to exact project/parent/Inbox; exact same-container before/after reorder                                                                      | Cross-container reorder (use move)                                                                               |
-| Task lifecycle       | Ordinary leaf lifecycle; explicit bounded ordinary subtree complete/drop/duplicate/delete; verified plain repeating occurrence completion          | Unsafe repeating/automatic/tentative groups; broader generated-history forms                                     |
-| Projects             | Create/update/type/status/complete/drop/folder move; cascade delete and sibling reorder                                                            | Protected default holder and attachment/alarm/assignment-bearing deletion                                        |
-| Taxonomy             | Tag/folder create/update/hierarchy/move/reorder/delete with exact cascade/association ownership                                                    | Forecast tag deletion; locations                                                                                 |
-| Review               | Separate `{unit,steps,fixed}` interval and mark-reviewed                                                                                           | Direct next-review/history setters                                                                               |
-| Recurrence           | Daily/weekly/monthly/yearly intervals, weekly weekday sets, monthly day/ordinal selectors; local due/defer anchors; set/replace/clear              | Yearly selectors, arbitrary ICS, planned/inherited rules, advanced repeating completion, joint date/anchor edits |
-| Alarms               | Absolute and due-relative replacement/clear, integer-minute write offsets                                                                          | Defer-relative/obscure metadata; fractional write offsets                                                        |
-| Batch                | Bounded homogeneous task create/update/move/ordinary complete/drop/delete, complete preflight                                                      | Subtree/reorder/recurrence/project/taxonomy batches, atomic rollback                                             |
+| Area                 | Supported scope                                                                                                                                    | Exclusions                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Task capture/scalars | Exact project, explicit Inbox or exact ordinary parent; name/note/flag/tag-set; nullable due/defer/planned dates and nonnegative integer estimates | Unsafe parents, tentative containment; Inbox recurrence/alarm edits                                      |
+| Task organization    | Move to exact project/parent/Inbox; exact same-container before/after reorder                                                                      | Cross-container reorder (use move)                                                                       |
+| Task lifecycle       | Ordinary leaf lifecycle; explicit bounded ordinary subtree complete/drop/duplicate/delete; verified plain repeating occurrence completion          | Unsafe repeating/automatic/tentative groups; broader generated-history forms                             |
+| Projects             | Create/update/type/status/complete/drop/folder move; cascade delete and sibling reorder                                                            | Protected default holder and attachment/alarm/assignment-bearing deletion                                |
+| Taxonomy             | Tag/folder create/update/hierarchy/move/reorder/delete with exact cascade/association ownership                                                    | Forecast tag deletion; broader location/permission forms                                                 |
+| Review               | Separate `{unit,steps,fixed}` interval, mark-reviewed and direct next-review local day/reset                                                       | Historical review backdating                                                                             |
+| Recurrence           | Daily/weekly/monthly/yearly intervals, weekly weekday sets, monthly day/ordinal selectors; local due/defer anchors; set/replace/clear              | Yearly selectors, arbitrary ICS, inherited rules, advanced repeating completion, joint date/anchor edits |
+| Alarms               | Absolute and due-relative replacement/clear, integer-minute write offsets                                                                          | Defer-relative/obscure metadata; fractional write offsets                                                |
+| Batch                | Bounded homogeneous task create/update/move/ordinary complete/drop/delete, complete preflight                                                      | Subtree/reorder/recurrence/project/taxonomy batches, atomic rollback                                     |
 
 Planned dates are native-capability gated. Scheduling preserves shared native floating
 semantics rather than inventing per-date flags. Local and inherited effective dates
@@ -76,7 +76,7 @@ Missing created identity is unknown: no name/time/order inference, no new-key re
 no stale-lock deletion. Process exit or timeout does not prove mutation stopped.
 
 Preserve private journals, receipts and lock evidence. No transaction, rollback or
-exactly-once claim is made. Default catalog remains four reads; authorized verbs are
+exactly-once claim is made. Development default catalog has ten reads (released beta.3 has four); authorized verbs are
 limited by host policy and can be further restricted by the client.
 
 See [Inbox/parent contract](inbox-parent-capture.md) and [CLI guide](cli.md).
@@ -86,7 +86,19 @@ and host `allow_repeating_completion:true`. See [calendar recurrence](calendar-r
 for supported single-anchor regular/plain non-floating from-completion intervals,
 generated history resource, clock semantics and guards.
 
-Development perspective mutations accept only typed availability/flagged/group
-rules, names and all/any/none aggregation. Built-ins are immutable; missing generated
+Development perspective mutations accept only the typed rules documented in the
+perspective contract, names and all/any/none aggregation. Built-ins are immutable; missing generated
 identity is unknown. See [perspectives](perspectives.md), [task hierarchy](task-hierarchy.md),
 [taxonomy cascades](taxonomy-lifecycle.md) and [batch lifecycle](task-batch.md).
+
+## Ordinary closure profile
+
+See [ordinary operations](native-capabilities.md) for exact restoration,
+conversion, Forecast/next-action preferences and direct-review schemas.
+[The closure checkpoint](native-capabilities.md) lists all richer
+perspective, interchange, attachment and repeating-alarm bounds.
+Plain task/project note replacement requires independently captured native
+`note_plain_safe:true`: no attachments, links, named styles or nondefault local
+formatting. Unknown content fails closed. Preview and native dispatch both validate;
+a task batch rejects in full before any setter if any note is outside that profile.
+Ordinary reads remain plain text; this guard does not claim rich interchange.

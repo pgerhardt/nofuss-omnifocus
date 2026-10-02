@@ -9,7 +9,7 @@ Optional selectors are explicit and exclusive:
 - Weekly: `weekdays`, a unique nonempty set of MO/TU/WE/TH/FR/SA/SU.
 - Monthly: `month_days`, unique nonzero days -31…31 (negative days count backward),
   or `ordinal_weekday: {ordinal: -5…-1 or 1…5, weekday: MO…SU}`.
-- Daily/yearly: interval only, anchored to the existing local due/defer date.
+- Daily/yearly: interval only, anchored to the existing local due/defer/planned date.
 
 Selector sets normalize before request hashing. Native constructor normalization
 must agree before setters; both independent read paths reject every unrepresented
@@ -42,9 +42,9 @@ are unsupported. This narrows comparator claims using live native evidence.
 
 `complete task` / MCP `nofuss_complete` now accepts explicit `occurrence: "current"`,
 requiring host `allow_repeating_completion:true` plus the usual task.complete/project
-scope. Support requires an unfinished ordinary leaf, either a future regular rule
-without catch-up or a plain from-completion interval, exactly one local due/defer anchor, declared planned-date support,
-and no planned/floating dates, alarms, attachments or unsafe ancestors. Batch completion
+scope. Support requires an unfinished ordinary leaf, a regular rule without catch-up or a verified from-completion calendar rule, exactly
+one local due/defer/planned anchor, declared planned-date support,
+and no floating dates, alarms, attachments or unsafe ancestors. Batch completion
 remains ordinary-only. Other repeating forms still reject before setters.
 
 The first exact fixture showed that the
@@ -59,10 +59,10 @@ Joint due/defer advancement remains outside this bounded contract.
 
 Verified bounded contract, established on OmniFocus 4.9.2,
 build 188.3.0 in America/Denver (machine offset UTC−06 at observation).
-Plain daily/weekly/monthly/yearly intervals with one non-floating local due OR
-defer anchor can now complete with the same explicit occurrence/host opt-in.
-Past anchors are valid for from-completion; regular completion retains its future
-anchor restriction. Independent prediction and exact generated-object checks remain mandatory.
+Plain daily/weekly/monthly/yearly intervals with one non-floating local due,
+defer or planned anchor can now complete with the same explicit occurrence/host opt-in.
+Past anchors are valid for from-completion and regular completion without catch-up.
+Regular completion advances one native occurrence even when it remains overdue. Independent prediction and exact generated-object checks remain mandatory.
 
 The native rule for the tested interval forms is:
 
@@ -110,9 +110,50 @@ change that changes the prediction conflicts before setters. Independent readbac
 verifies the generated completed-history identity, the continuing original identity,
 and prediction using the history's actual completion timestamp plus the old anchor.
 
-From-completion writes reject floating dates, custom weekly/monthly selectors,
-dual/inherited/planned anchors, catch-up, alarms, attachments, groups and unsafe
+From-completion completion rejects floating dates,
+dual/inherited anchors, catch-up, alarms, attachments, groups and unsafe
 ancestors before mutation. Same-zone floating observations do not establish travel
 or cross-zone semantics. Safe bounded selector recurrence reads/writes remain
-supported. Yearly BYMONTH constructors are unsupported. Regular overdue completion
-remains rejected. Advanced recurrence/history forms remain deferred.
+supported. Yearly BYMONTH constructors are unsupported. Regular overdue completion without catch-up is supported. Advanced recurrence/history forms remain deferred.
+
+## Post-beta.3 native closure
+
+Three live weekly/monthly selector completions (weekly TU/TH, month days 1/15/-1,
+last Friday) matched independent prediction and exact continuing/history readback.
+A declared planned-only monthly anchor passed rule creation and current completion
+through the core, including history preservation. Planned anchors are accepted only
+where the installed enum/property is declared; joint date/rule edits remain rejected.
+One overdue regular monthly product completion also passed independent prediction.
+
+Small native hypotheses expose the remaining boundaries:
+
+- Missed July monthly anchor, October completion: regular/no-catch-up advances to
+  August; automatic catch-up advances to October. One `firstDateAfterDate(oldAnchor)`
+  prediction cannot represent catch-up. Catch-up rule writes remain supported;
+  catch-up **completion** rejects until its completion-relative predictor is proved.
+- Dual due/defer from-completion crosses the fall DST boundary with independently
+  preserved local clocks; their elapsed interval changes by an hour. A simple
+  absolute-offset prediction is wrong. Dual completion still rejects.
+- YEARLY BYMONTH constructors reject. YEARLY BYDAY text may survive construction
+  while the selector is ignored by both schedules. Both yearly selector forms reject.
+- Inherited repeating ancestors can advance/cascade beyond a scalar local anchor;
+  no independent generated-history model is established. They reject.
+- Actual timezone travel was not performed. Same-zone floating evidence is insufficient;
+  floating completion remains unsupported. No timezone/system clock was changed.
+- Additional selector combinations/raw ICS and alarm-bearing completion remain
+  outside the typed, independently verified prediction/history contract.
+
+No history date/counter setters or retroactive generated-history mutations are added.
+See [native closure checkpoint](native-capabilities.md) for the final audit.
+
+## Ordinary alarm closure supplement
+
+The later ordinary loop supersedes blanket alarm-bearing completion deferrals for
+one verified profile: regular, nonfloating due-only current completion with one
+ordinary unsnoozed nonrepeating notification. Relative notification identity
+continues and advances; history gets a separate notification with no next fire.
+Absolute notification leaves the continuing task and is copied to history.
+Independent readback verifies both objects. Other advanced notification/clock/
+cascade profiles remain excluded. See
+[the ordinary native checkpoint](native-capabilities.md) and
+[operation contracts](native-capabilities.md).

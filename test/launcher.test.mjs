@@ -60,3 +60,49 @@ test("fixed launcher round-trips hostile-looking Unicode arguments as data", () 
   assert.deepEqual(l.run(request), request);
   assert.deepEqual(l.counts(), { evaluations: 1, sourceReads: 1 });
 });
+test("flagged library selector uses one native selection and passes IDs as data to one OmniJS evaluation", () => {
+  let selects = 0,
+    evaluations = 0;
+  const context = vm.createContext({
+    ObjC: { import() {}, unwrap: (x) => x },
+    $: {
+      NSString: {
+        stringWithContentsOfFileEncodingError: () =>
+          "function(r){return JSON.stringify(r)}",
+      },
+      NSUTF8StringEncoding: 4,
+    },
+    Application: () => ({
+      running: () => true,
+      defaultDocument: {
+        flattenedTasks: {
+          whose: (predicate) => {
+            assert.deepEqual(JSON.parse(JSON.stringify(predicate)), {
+              flagged: true,
+            });
+            selects++;
+            return { id: () => ["selected"] };
+          },
+        },
+      },
+      evaluateJavascript: (script) => {
+        evaluations++;
+        return vm.runInNewContext(script);
+      },
+    }),
+  });
+  vm.runInContext(source, context);
+  const result = JSON.parse(
+    context.run([
+      "operation.js",
+      JSON.stringify({
+        request_id: "x",
+        op: "query",
+        args: { entity: "task", scope: "library", flagged: true },
+      }),
+    ]),
+  );
+  assert.deepEqual(result.args.library_task_ids, ["selected"]);
+  assert.equal(selects, 1);
+  assert.equal(evaluations, 1);
+});

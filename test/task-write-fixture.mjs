@@ -22,7 +22,7 @@ export function taskFixture(dateClass = Date) {
     constructor(name, position) {
       this.id = { primaryKey: "new-" + ++count };
       this._name = name;
-      this.noteText = { string: "" };
+      this.noteText = { string: "", attachments: [], attributeRuns: [] };
       this._flagged = false;
       this.parent =
         position instanceof Task ? position : (position?.task ?? null);
@@ -81,7 +81,7 @@ export function taskFixture(dateClass = Date) {
     }
     set note(value) {
       events.push("note");
-      this.noteText = { string: value };
+      this.noteText = { string: value, attachments: [], attributeRuns: [] };
     }
     get flagged() {
       return this._flagged;
@@ -179,7 +179,11 @@ export function taskFixture(dateClass = Date) {
     Regularly: "Regularly",
     FromCompletion: "FromCompletion",
   };
-  Task.AnchorDateKey = { DueDate: "DueDate", DeferDate: "DeferDate" };
+  Task.AnchorDateKey = {
+    DueDate: "DueDate",
+    DeferDate: "DeferDate",
+    PlannedDate: "PlannedDate",
+  };
   Task.Notification = {
     Kind: { Absolute: "Absolute", DueRelative: "DueRelative" },
   };

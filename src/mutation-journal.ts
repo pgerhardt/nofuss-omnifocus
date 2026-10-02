@@ -333,7 +333,13 @@ export class MutationJournal {
     try {
       await this.directoryReady();
       for (const name of await readdir(this.directory)) {
-        if (!name.endsWith(".json") || name === "mutation-authorization.json")
+        if (
+          !name.endsWith(".json") ||
+          [
+            "mutation-authorization.json",
+            "attachment-authorization.json",
+          ].includes(name)
+        )
           continue;
         const record = this.validate(
           await this.readJson(join(this.directory, name)),
